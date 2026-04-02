@@ -1,2 +1,7 @@
 .claude/
 CLAUDE.md
+backend/venv/
+__pycache__/
+*.pyc
+.DS_Store
+data/
