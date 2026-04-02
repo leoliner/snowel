@@ -7,6 +7,10 @@ from pathlib import Path
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent))
 
+# 切换到 backend 目录作为工作目录
+import os
+os.chdir(Path(__file__).parent)
+
 if __name__ == "__main__":
     print("❄️  Snowvel 雪花写作法 - AI 辅助小说创作系统")
     print("=" * 50)

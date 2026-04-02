@@ -32,19 +32,43 @@ pip install -r requirements.txt
 
 ### 2. 启动服务
 
+**方式一：使用全局 venv（推荐）**
+
 ```bash
+cd backend
+/mnt/d/Code/venv/bin/python start.py
+```
+
+**方式二：先激活 venv**
+
+```bash
+source /mnt/d/Code/venv/bin/activate
+cd backend
 python start.py
 ```
 
-或直接使用 uvicorn：
+**方式三：直接使用 uvicorn**
 
 ```bash
-uvicorn main:app --reload
+cd backend
+/mnt/d/Code/venv/bin/uvicorn main:app --reload
 ```
 
 ### 3. 访问界面
 
-打开浏览器访问: `http://localhost:8000/static/app.html`
+**在 WSL 内部访问：**
+```
+http://localhost:8000/static/app.html
+```
+
+**在 Windows 主机访问：**
+
+WSL2 会自动转发端口到 Windows 主机，直接在 Windows 浏览器访问：
+```
+http://localhost:8000/static/app.html
+```
+
+> 💡 **提示**：如果 `localhost` 无法访问，可以在 WSL 中运行 `hostname -I` 获取 WSL 的 IP 地址（如 `172.x.x.x`），然后使用 `http://172.x.x.x:8000/static/app.html` 访问。
 
 ## ⚙️ 配置 API 密钥
 
