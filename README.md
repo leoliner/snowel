@@ -1,98 +1,53 @@
-# Snowvel
+# <span style="color:#e74c3c">S</span><span style="color:#f39c12">n</span><span style="color:#f1c40f">o</span><span style="color:#2ecc71">w</span><span style="color:#3498db">e</span><span style="color:#9b59b6">l</span> —— AI 小说生成引擎
 
-**雪花写作法 meets AI-Powered Storycraft**
+> 基于雪花写作法的 AI 辅助长篇小说创作系统
 
-AI 辅助小说创作系统，基于 Randy Ingermanson 的雪花写作法（The Snowflake Method），帮助作者系统化地从灵感构建完整小说。
+---
 
-## ✨ 功能特点
+## 命名
 
-- ❄️ **5层渐进式创作**: 从一句话前提到完整大纲的渐进扩展
-- 🤖 **AI 辅助生成**: 集成 Kimi API（OpenAI 兼容），智能生成创意
-- 🔒 **本地加密存储**: API 密钥本地加密，项目数据本地保存
-- 🌐 **Web 界面**: 简洁直观的浏览器界面
+**Snowel** 源自 **Snowflake**（雪花写作法）+ **Novel**（小说）。
 
-## 🏗️ 系统架构
+同时是六层渐进式创作架构的首字母组合：
 
-```
-Layer 1: 灵感雪核 - 一句话前提 + 标签拼贴
-Layer 2: 故事骨架 - 五句话摘要 + 一页大纲
-Layer 3: 角色血肉 - 角色档案 + 关系图谱（开发中）
-Layer 4: 场景脉络 - 场景卡片 + 技法标记（开发中）
-Layer 5: 正文绽放 - 场景文本生成（开发中）
-```
+| 层级 | 提供字母 | 阶段名称 | 雪花隐喻 |
+|:---|:---:|:---|:---|
+| 灵感雪核 | <span style="color:#e74c3c">**S**</span> | <span style="color:#e74c3c">**S**</span>ingle Sentence Premise | 云端雪核，一切的开始 |
+| 故事骨架 | <span style="color:#f39c12">**n**</span> | Expansio<span style="color:#f39c12">**n**</span> | 初绽之花，骨脉为枝 |
+| 角色血肉 | <span style="color:#f1c40f">**o**</span> | <span style="color:#f1c40f">**O**</span>riginal Character | 盛放之花，魂息为瓣 |
+| 场景脉络 | <span style="color:#2ecc71">**w**</span> | Scene Flo<span style="color:#2ecc71">**w**</span> | 繁锦之花，幕影为纹 |
+| 正文绽放 | <span style="color:#3498db">**e**</span> | Sc<span style="color:#3498db">**e**</span>ne Writing | 华彩之花，文字为晶 |
+| 记忆守护 | <span style="color:#9b59b6">**l**</span> | Sea<span style="color:#9b59b6">**l**</span> | 下雪了！！！ |
 
-## 🚀 快速开始
+---
 
-### 1. 安装依赖
+## 简介
 
-```bash
-cd backend
-pip install -r requirements.txt
-```
+Snowel 是一款 AI 驱动的小说创作工具，基于《雪花写作法》的渐进式扩展理念，帮助作者从灵感火花系统化地构建完整长篇小说。
 
-### 2. 启动服务
+## 核心特性
 
-**方式一：使用全局 venv（推荐）**
+- **渐进式创作**：从一句话梗概逐步扩展至完整小说（Layer 1→5）
+- **智能伏笔管理**：将伏笔作为结构化资产追踪全生命周期
+- **角色一致性守护**：向量记忆库防止人设崩塌
+- **AI 辅助生成**：人类决策 + AI 执行，保持作者主导权
 
-```bash
-cd backend
-/mnt/d/Code/venv/bin/python start.py
-```
-
-**方式二：先激活 venv**
-
-```bash
-source /mnt/d/Code/venv/bin/activate
-cd backend
-python start.py
-```
-
-**方式三：直接使用 uvicorn**
-
-```bash
-cd backend
-/mnt/d/Code/venv/bin/uvicorn main:app --reload
-```
-
-### 3. 访问界面
-
-**在 WSL 内部访问：**
-```
-http://localhost:8000/static/app.html
-```
-
-**在 Windows 主机访问：**
-
-WSL2 会自动转发端口到 Windows 主机，直接在 Windows 浏览器访问：
-```
-http://localhost:8000/static/app.html
-```
-
-> 💡 **提示**：如果 `localhost` 无法访问，可以在 WSL 中运行 `hostname -I` 获取 WSL 的 IP 地址（如 `172.x.x.x`），然后使用 `http://172.x.x.x:8000/static/app.html` 访问。
-
-## ⚙️ 配置 API 密钥
-
-1. 点击右上角「配置」
-2. 填入你的 Kimi API 密钥（从 https://platform.moonshot.cn/ 获取）
-3. 密钥将加密存储在本地 `data/` 目录
-
-## 📁 项目结构
+## 五层创作架构
 
 ```
-snowel/
-├── backend/
-│   ├── app/
-│   │   ├── core/          # 配置、加密
-│   │   ├── models/        # 数据模型
-│   │   ├── routers/       # API 路由
-│   │   └── services/      # 业务逻辑
-│   ├── frontend/
-│   │   └── static/        # Web 前端
-│   ├── main.py            # FastAPI 入口
-│   └── requirements.txt
-└── data/                  # 本地数据存储（自动创建）
+Layer 1: 灵感雪核    → 一句话梗概 + 标签拼贴
+Layer 2: 故事骨架    → 一段式摘要 + 一页纸大纲
+Layer 3: 角色血肉    → 角色档案 + 关系图谱
+Layer 4: 场景脉络    → 场景卡片 + 技巧标注
+Layer 5: 正文绽放    → 单场景生成 + 一致性守护
 ```
 
-## 📜 许可证
+## 使用方式
 
-MIT License
+- **CLI 交互**：通过自然语言指挥 AI 创作
+- **MCP 调用**：AI 代理通过 Model Context Protocol 调用服务
+- **Web 浏览**：在 Web 界面查看和管理生成内容
+
+## 许可证
+
+Apache License 2.0
