@@ -39,7 +39,7 @@ snowel_core/
 
 ## 3. 投影器（E2）
 
-- `storage/projector.py`：`fold(state, event) -> state` 纯函数（按 §3.2 of schema-design 的 12 种事件类型分派物化动作）；`apply(events, tx)` 增量应用；`rebuild()` 从日志全量重建。
+- `storage/projector.py`：`fold(state, event) -> state` 纯函数（按 schema-design §3.2 的全部事件类型分派物化动作）；`apply(events, tx)` 增量应用；`rebuild()` 从日志全量重建。
 - **纪律：物化图（nodes/edges/派生序/FTS/vec 索引）唯一写入口是投影器。** 领域模块改物化图的唯一方式 = 追加事件。代码评审以此为红线。
 - 检查点水位线存库；rebuild 供 `snowel rebuild` 类命令与损坏恢复。
 

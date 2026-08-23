@@ -120,6 +120,8 @@ events(
 | `stale_marked` | 上游变更标 stale（C5） | 提案 id、差异提示 |
 | `proposal_rejected` | 作者否决提案（D7，创作决策） | 提案 id、可选否决原因 |
 | `proposal_voided` | 手动作废（C5/D7，队列清理，不构成决策） | 提案 id |
+| `completeness_override` | 作者手动升降级 completeness（D5） | 节点 id、旧→新状态、原因 |
+| `beat_merged` / `beat_deleted` | 微节拍合并/删除（D6，显式事件） | 拍地址、受影响伏笔引用及迁移结果 |
 
 ### 3.3 重放与检查点（D1）
 
