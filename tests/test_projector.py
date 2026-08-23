@@ -41,3 +41,50 @@ def test_apply_is_incremental_with_checkpoint(tmp_path):
     projector.apply(conn)
     cp = conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()
     assert cp["seq"] == 1
+
+def _ev(conn, kind, payload):
+    with db.transaction(conn) as tx:
+        events.append_event(tx, kind, payload)
+
+def test_retraction_deactivates_node(tmp_path):  # C2
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _confirmed(conn, [NODE_FACT]); projector.apply(conn)
+    _ev(conn, "retraction", {"target": "node", "target_id": "n-linwan", "cascade_hints": []})
+    projector.apply(conn)
+    n = conn.execute("SELECT active FROM nodes WHERE id='n-linwan'").fetchone()
+    assert n["active"] == 0
+    assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 2  # 行未删、日志 append-only
+
+def test_retcon_rename_keeps_alias(tmp_path):  # D2/TC-ON-02
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _confirmed(conn, [NODE_FACT]); projector.apply(conn)
+    _ev(conn, "retcon_applied", {"renames": [
+        {"node_id": "n-linwan", "old_name": "林晚", "new_name": "江晚"}], "notes": ""})
+    projector.apply(conn)
+    n = conn.execute("SELECT name FROM nodes WHERE id='n-linwan'").fetchone()
+    a = conn.execute("SELECT alias FROM alias WHERE node_id='n-linwan'").fetchone()
+    assert n["name"] == "江晚" and a["alias"] == "林晚"
+
+def test_completeness_override_event(tmp_path):  # D5
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _confirmed(conn, [NODE_FACT]); projector.apply(conn)
+    _ev(conn, "completeness_override",
+        {"node_id": "n-linwan", "old": "draft", "new": "profiled", "reason": "手动"})
+    projector.apply(conn)
+    assert conn.execute("SELECT completeness FROM nodes WHERE id='n-linwan'"
+                        ).fetchone()["completeness"] == "profiled"
+
+def test_track_added_and_frozen(tmp_path):  # C7
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _ev(conn, "track_added", {"track_id": "t1", "name": "现实轨",
+                              "definition": {"scale": 1.0}})
+    _ev(conn, "track_frozen", {"track_id": "t1"})
+    projector.apply(conn)
+    t = conn.execute("SELECT * FROM tracks WHERE id='t1'").fetchone()
+    assert t["frozen"] == 1
+
+def test_unknown_kind_is_noop(tmp_path):
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _ev(conn, "volume_sealed", {"volume_id": "v1"})  # 后续计划的 kind
+    projector.apply(conn)  # 不抛错，水位线照常推进
+    assert conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()["seq"] == 1

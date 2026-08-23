@@ -1,7 +1,6 @@
 # src/snowel_core/storage/projector.py
 import json
 import sqlite3
-from . import events
 
 def _upsert_node(tx, f: dict, seq: int):
     tx.execute(
@@ -34,8 +33,43 @@ def _facts_event(tx, payload: dict, seq: int):
 HANDLERS = {
     "proposal_confirmed": _facts_event,
     "auto_canonized": _facts_event,
-    # 其余 kind 由 Task 4/后续计划补齐；未知 kind 记录但不物化（防前向兼容炸库）
+    # 其余 kind 由后续计划补齐；未知 kind 静默跳过不物化（防前向兼容炸库）
 }
+
+def _retraction(tx, payload, seq):
+    table = "nodes" if payload["target"] == "node" else "edges"
+    if table == "nodes":
+        tx.execute("UPDATE nodes SET active=0 WHERE id=?", (payload["target_id"],))
+    else:
+        tx.execute("UPDATE edges SET valid_until=-1 WHERE id=?", (payload["target_id"],))
+    # edges 的 valid_until=-1 表示"已被撤回、任何拍均不生效"
+
+def _retcon_applied(tx, payload, seq):
+    for r in payload.get("renames", []):
+        tx.execute("UPDATE nodes SET name=? WHERE id=?", (r["new_name"], r["node_id"]))
+        tx.execute("INSERT OR IGNORE INTO alias(node_id, alias, source) VALUES(?,?,?)",
+                   (r["node_id"], r["old_name"], "retcon"))
+
+def _completeness_override(tx, payload, seq):
+    tx.execute("UPDATE nodes SET completeness=? WHERE id=?",
+               (payload["new"], payload["node_id"]))
+
+def _track_added(tx, payload, seq):
+    tx.execute("INSERT INTO tracks(id, name, definition, frozen) VALUES(?,?,?,0) "
+               "ON CONFLICT(id) DO NOTHING",
+               (payload["track_id"], payload["name"],
+                json.dumps(payload["definition"], ensure_ascii=False)))
+
+def _track_frozen(tx, payload, seq):
+    tx.execute("UPDATE tracks SET frozen=1 WHERE id=?", (payload["track_id"],))
+
+HANDLERS.update({
+    "retraction": _retraction,
+    "retcon_applied": _retcon_applied,
+    "completeness_override": _completeness_override,
+    "track_added": _track_added,
+    "track_frozen": _track_frozen,
+})
 
 def _checkpoint(conn) -> int:
     row = conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()
