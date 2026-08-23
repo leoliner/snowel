@@ -6,18 +6,20 @@
 
 ## 命名
 
-**Snowel** 源自 **Snowflake**（雪花写作法）+ **Novel**（小说）。
+**Snowel** = **Snowflake**（雪花写作法）+ **Novel**（小说）。
 
-同时是六层渐进式创作架构的首字母组合：
+六个字母恰好对应六级渐进式创作阶段：
 
-| 层级 | 提供字母 | 阶段名称 | 雪花隐喻 |
-|:---|:---:|:---|:---|
-| 灵感雪核 | <span style="color:#e74c3c">**S**</span> | <span style="color:#e74c3c">**S**</span>ingle Sentence Premise | 云端雪核，一切的开始 |
-| 故事骨架 | <span style="color:#f39c12">**n**</span> | Expansio<span style="color:#f39c12">**n**</span> | 初绽之花，骨脉为枝 |
-| 角色血肉 | <span style="color:#f1c40f">**o**</span> | <span style="color:#f1c40f">**O**</span>riginal Character | 盛放之花，魂息为瓣 |
-| 场景脉络 | <span style="color:#2ecc71">**w**</span> | Scene Flo<span style="color:#2ecc71">**w**</span> | 繁锦之花，幕影为纹 |
-| 正文绽放 | <span style="color:#3498db">**e**</span> | Sc<span style="color:#3498db">**e**</span>ne Writing | 华彩之花，文字为晶 |
-| 记忆守护 | <span style="color:#9b59b6">**l**</span> | Sea<span style="color:#9b59b6">**l**</span> | 下雪了！！！ |
+| 字母 | 层级 | 阶段 |
+|:---:|:---|:---|
+| <span style="color:#e74c3c">**S**</span> | 灵感雪核 | <span style="color:#e74c3c">**S**</span>ingle Sentence Premise（一句话梗概） |
+| <span style="color:#f39c12">**n**</span> | 故事骨架 | Expansio<span style="color:#f39c12">**n**</span>（摘要与一页纸大纲） |
+| <span style="color:#f1c40f">**o**</span> | 角色血肉 | <span style="color:#f1c40f">**O**</span>riginal Character（角色档案与关系） |
+| <span style="color:#2ecc71">**w**</span> | 场景脉络 | Scene Flo<span style="color:#2ecc71">**w**</span>（场景卡与节拍） |
+| <span style="color:#3498db">**e**</span> | 正文绽放 | Sc<span style="color:#3498db">**e**</span>ne Writing（正文生成） |
+| <span style="color:#9b59b6">**l**</span> | 记忆守护 | Sea<span style="color:#9b59b6">**l**</span>（封卷与知识正典冻结） |
+
+> 「下雪了！！！」
 
 ---
 
