@@ -5,3 +5,10 @@ __pycache__/
 *.pyc
 .DS_Store
 data/
+# superpowers SDD 工作区：过程物（brief/report/diff 包）忽略，仅跟踪各计划的 ledger
+.superpowers/*
+!.superpowers/sdd/
+.superpowers/sdd/*
+!.superpowers/sdd/*/
+.superpowers/sdd/*/*
+!.superpowers/sdd/*/progress.md
