@@ -12,7 +12,7 @@
 
 ## 文档与工作流状态
 
-- 需求与技术选型定稿：`docs/v1.0.0/requirements.md`（C1~C12 裁决并入正文）；设计定稿：`docs/v1.0.0/design.md`（D1~D8 + E1~E5）；过程文档在 `docs/v1.0.0/details/`。
-- 工作流遵循全局配置 1.4/1.5（brainstorming + socratic-clarify，文档链 requirements → design → plans → 执行）。
+- 需求上游：模拟推演 `docs/v1.0.0/details/sim-walkthrough-01.md`（示范小说走查，问题清单 #0~#31 + 技术决议）；需求定稿：`docs/v1.0.0/requirements.md`（C1~C12 裁决并入正文）；设计定稿：`docs/v1.0.0/design.md`（D1~D8 + E1~E5）；其余过程文档在 `docs/v1.0.0/details/`。
+- 工作流遵循全局配置 1.4/1.5（brainstorming + socratic-clarify，文档链 simulation → requirements → design → plans → 执行）。
 - 实现计划存储于 `docs/v1.0.0/plans/`；落地顺序：core（本体+事件溯源+基础查询）→ MCP/CLI 壳 → 回写环+混合检索 → Web 三栏界面。
 - 当前阶段：设计与需求已完成交叉审计，下一步拆 snowel-core 实现计划（需用户发话）。
