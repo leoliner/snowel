@@ -132,6 +132,27 @@ def test_revision_applied_moves_node_address(tmp_path):
         "SELECT id, story_order FROM nodes WHERE id LIKE 'ch%'")}
     assert so["ch2"] < so["ch1"]
 
+def test_edge_retraction_survives_recompute(tmp_path):  # C2：撤回哨兵不被 recompute 覆盖
+    from snowel_core.storage import queries
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _confirmed(conn, [NODE_FACT, NODE_X_FACT, EDGE_FACT])
+    projector.apply(conn)
+    _ev(conn, "retraction", {"target": "edge", "target_id": "e-1", "cascade_hints": []})
+    projector.apply(conn)  # apply 末尾 recompute_story_order 不得抹掉哨兵
+    assert conn.execute("SELECT valid_until FROM edges WHERE id='e-1'"
+                        ).fetchone()["valid_until"] == -1
+    st = queries.state_at(conn, 100)
+    assert all(e["id"] != "e-1" for e in st["edges"])  # 任何叙事点均不生效
+
+def test_reconfirmed_node_revived(tmp_path):  # C2：重确认节点应复活
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _confirmed(conn, [NODE_FACT]); projector.apply(conn)
+    _ev(conn, "retraction", {"target": "node", "target_id": "n-linwan", "cascade_hints": []})
+    projector.apply(conn)
+    _confirmed(conn, [NODE_FACT]); projector.apply(conn)
+    assert conn.execute("SELECT active FROM nodes WHERE id='n-linwan'"
+                        ).fetchone()["active"] == 1
+
 def test_rebuild_reproduces_identical_state(tmp_path):  # D1/TC-EV-05
     conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
     _confirmed(conn, [NODE_FACT,

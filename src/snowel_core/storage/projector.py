@@ -9,7 +9,8 @@ def _upsert_node(tx, f: dict, seq: int):
         """INSERT INTO nodes(id, types, name, completeness, props, active, created_event)
            VALUES(?,?,?,?,?,1,?)
            ON CONFLICT(id) DO UPDATE SET
-             types=excluded.types, name=excluded.name, props=excluded.props""",
+             types=excluded.types, name=excluded.name, props=excluded.props,
+             active=1""",
         (f["id"], json.dumps(f["types"], ensure_ascii=False), f["name"],
          f.get("completeness", "draft"), json.dumps(f.get("props", {}), ensure_ascii=False), seq))
 
@@ -89,7 +90,9 @@ def recompute_story_order(conn: sqlite3.Connection) -> None:
     conn.executemany("UPDATE nodes SET story_order=? WHERE id=?",
                      [(order.get(r["id"]), r["id"]) for r in rows])
     # 边有效期：拍地址 → story_order
-    for e in conn.execute("SELECT id, props FROM edges").fetchall():
+    for e in conn.execute("SELECT id, props, valid_until FROM edges").fetchall():
+        if e["valid_until"] == -1:  # 已撤回哨兵：保持撤回，直到后续事实重新确认该边
+            continue
         p = json.loads(e["props"])
         vf, vu = p.get("valid_from_beat"), p.get("valid_until_beat")
         conn.execute("UPDATE edges SET valid_from=?, valid_until=? WHERE id=?",
