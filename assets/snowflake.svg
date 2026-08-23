@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Snowel snowflake: 6-spoke crystal with twinkling nodes -->
+  <g stroke="#9b59b6" stroke-width="2.5" stroke-linecap="round" fill="none">
+    <!-- six spokes -->
+    <line x1="32" y1="32" x2="32" y2="6"/>
+    <line x1="32" y1="32" x2="54.5" y2="45"/>
+    <line x1="32" y1="32" x2="9.5" y2="45"/>
+    <line x1="32" y1="32" x2="32" y2="58"/>
+    <line x1="32" y1="32" x2="9.5" y2="19"/>
+    <line x1="32" y1="32" x2="54.5" y2="19"/>
+    <!-- branches -->
+    <path d="M32 14 L27 9 M32 14 L37 9"/>
+    <path d="M32 50 L27 55 M32 50 L37 55"/>
+    <path d="M46.7 40.5 L46.7 33.5 M46.7 40.5 L53.8 42.5"/>
+    <path d="M17.3 40.5 L17.3 33.5 M17.3 40.5 L10.2 42.5"/>
+    <path d="M46.7 23.5 L46.7 30.5 M46.7 23.5 L53.8 21.5"/>
+    <path d="M17.3 23.5 L17.3 30.5 M17.3 23.5 L10.2 21.5"/>
+  </g>
+  <!-- twinkling nodes: staggered opacity pulses -->
+  <g fill="#9b59b6">
+    <circle cx="32" cy="6" r="3">
+      <animate attributeName="opacity" values="1;0.15;1" dur="1.8s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="54.5" cy="45" r="3">
+      <animate attributeName="opacity" values="1;0.15;1" dur="1.8s" begin="0.3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="9.5" cy="45" r="3">
+      <animate attributeName="opacity" values="1;0.15;1" dur="1.8s" begin="0.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="32" cy="58" r="3">
+      <animate attributeName="opacity" values="1;0.15;1" dur="1.8s" begin="0.9s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="9.5" cy="19" r="3">
+      <animate attributeName="opacity" values="1;0.15;1" dur="1.8s" begin="1.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="54.5" cy="19" r="3">
+      <animate attributeName="opacity" values="1;0.15;1" dur="1.8s" begin="1.5s" repeatCount="indefinite"/>
+    </circle>
+    <!-- breathing core -->
+    <circle cx="32" cy="32" r="3.5" fill="#e74c3c">
+      <animate attributeName="opacity" values="0.4;1;0.4" dur="3.6s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+</svg>
