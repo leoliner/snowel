@@ -1,7 +1,7 @@
 # Snowel 需求文档（v1.0.0 定稿）
 
 > 日期：2026-08-23
-> 来源：docs/v1.0.0/details/requirements-01.md（三轮苏格拉底式澄清，裁决 C1~C12 已全部并入正文）。
+> 来源：docs/v1.0.0/details/requirements-01.md（三轮苏格拉底式澄清，裁决 C1–C12 已全部并入正文）。
 > 本文档是 v1.0.0 的完整需求规格，是设计文档（design.md）与实现计划的上游输入。
 
 ---

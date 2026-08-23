@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+，sqlite3（标准库，WAL 模式），pydantic v2（属性组 schema），pytest。
 
-**Spec:** `docs/v1.0.0/requirements.md`（C1~C12）、`docs/v1.0.0/design.md`（D1~D8/E1~E5）、`docs/v1.0.0/testcases.md`（用例编号在任务中引用）。
+**Spec:** `docs/v1.0.0/requirements.md`（C1–C12）、`docs/v1.0.0/design.md`（D1–D8/E1–E5）、`docs/v1.0.0/testcases.md`（用例编号在任务中引用）。
 
 ## Global Constraints
 
@@ -49,9 +49,9 @@ src/snowel_core/proposal/__init__.py
 src/snowel_core/proposal/queue.py      # 提案队列 + 状态机
 src/snowel_core/api.py                 # SnowelAPI 门面
 tests/conftest.py
-tests/test_storage.py                  # Task 1~3
-tests/test_projector.py                # Task 4~6
-tests/test_queries.py                  # Task 8~9
+tests/test_storage.py                  # Task 1–3
+tests/test_projector.py                # Task 4–6
+tests/test_queries.py                  # Task 8–9
 tests/test_proposal.py                 # Task 10
 tests/test_api.py                      # Task 11
 ```
@@ -1362,7 +1362,7 @@ git commit -m "feat(core): writer lease and SnowelAPI facade"
 
 ## Self-Review 记录
 
-- **Spec 覆盖**：D1（检查点/批量/重放）→ Task 3/5/6；D2（UUID+alias+多标签）→ Task 3/4/8；D3（注册式属性组/unmanaged/版本降级）→ Task 9；D4（地址+派生序+插入重算）→ Task 5；D5（draft/profiled+override）→ Task 4/9（active 显式裁剪）；D6/D7 部分 → D6 的 beat_merged 留后续计划（D7 否决/作废事件在 Task 10）；E1（事务规则）→ Task 1/10；E2（投影器唯一写入口）→ Task 3~7 全部物化集中在 projector.py；C5/C10 → Task 10/11；C7 → Task 4；C2 → Task 4。未覆盖项均已在"范围裁剪"表登记并有承接计划。
+- **Spec 覆盖**：D1（检查点/批量/重放）→ Task 3/5/6；D2（UUID+alias+多标签）→ Task 3/4/8；D3（注册式属性组/unmanaged/版本降级）→ Task 9；D4（地址+派生序+插入重算）→ Task 5；D5（draft/profiled+override）→ Task 4/9（active 显式裁剪）；D6/D7 部分 → D6 的 beat_merged 留后续计划（D7 否决/作废事件在 Task 10）；E1（事务规则）→ Task 1/10；E2（投影器唯一写入口）→ Task 3–7 全部物化集中在 projector.py；C5/C10 → Task 10/11；C7 → Task 4；C2 → Task 4。未覆盖项均已在"范围裁剪"表登记并有承接计划。
 - **占位符扫描**：无 TBD/TODO；Task 7 Step 3 的伪代码段已明确标注"删掉换真代码"，执行者照做。
 - **类型一致性**：`apply(conn)`/`rebuild(conn)`/`state_at(conn, story_order)`/`ProposalQueue(conn)` 签名在各任务间一致；事实集契约统一在文首定义。
 
@@ -1375,4 +1375,4 @@ git commit -m "feat(core): writer lease and SnowelAPI facade"
 
 ## 执行结果
 
-本计划已于 2026-08-23 以 Subagent-Driven 方式执行完成：11 个任务 + 终审修复波，12 个提交（789846a..6334903），合入 dev-1.0.0，37/37 测试通过。执行遗留问题（L1~L4 及随行小项）与关键裁决记录于 `.superpowers/sdd/2026-08-23-snowel-core/progress.md`（ledger，git 忽略）——**下游计划拆解时必须在 preflight 中携带 L1~L4**。
+本计划已于 2026-08-23 以 Subagent-Driven 方式执行完成：11 个任务 + 终审修复波，12 个提交（789846a..6334903），合入 dev-1.0.0，37/37 测试通过。执行遗留问题（L1–L4 及随行小项）与关键裁决记录于 `.superpowers/sdd/2026-08-23-snowel-core/progress.md`（ledger，git 忽略）——**下游计划拆解时必须在 preflight 中携带 L1–L4**。
