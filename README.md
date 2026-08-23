@@ -19,7 +19,15 @@
 | <span style="color:#3498db">**e**</span> | 正文绽放 | Sc<span style="color:#3498db">**e**</span>ne Writing（正文生成） |
 | <span style="color:#9b59b6">**l**</span> | 记忆守护 | Sea<span style="color:#9b59b6">**l**</span>（封卷与知识正典冻结） |
 
-> 「下雪了！！！」
+```
+   .  *   .
+  *  \ | /  *
+    ―― ❄ ――
+  *  / | \  *
+   .  *   .
+```
+
+> 「下雪了。」
 
 ---
 
