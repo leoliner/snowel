@@ -3,6 +3,8 @@ import json
 import sqlite3
 
 def _upsert_node(tx, f: dict, seq: int):
+    if not isinstance(f.get("types"), list):
+        raise ValueError(f"node 事实 types 必须为数组: {f.get('id')}")
     tx.execute(
         """INSERT INTO nodes(id, types, name, completeness, props, active, created_event)
            VALUES(?,?,?,?,?,1,?)
