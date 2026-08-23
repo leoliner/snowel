@@ -58,26 +58,17 @@ flowchart TD
 | MCP | 官方 `mcp` Python SDK |
 | Web | FastAPI + React + Vite |
 
-## 项目状态
-
-**当前处于设计完成、实现未启动阶段**（v1.0.0）。
-
-```mermaid
-flowchart LR
-    S1[模拟推演 ✅] --> S2[需求定稿 ✅] --> S3[设计定稿 ✅] --> S4[测试用例] --> S5[实现计划] --> S6[实现]
-```
-
-落地顺序：snowel-core（本体 + 事件溯源 + 基础查询）→ MCP/CLI 薄壳 → 回写环 + 混合检索 → Web 三栏界面。
-
 ## 文档
 
-| 文档 | 位置 |
+所有设计文档在 [docs/](docs/) 下，按版本组织（如 `docs/v1.0.0/`）：
+
+| 文件 | 用途 |
 |---|---|
-| 需求规格（定稿） | [docs/v1.0.0/requirements.md](docs/v1.0.0/requirements.md) |
-| 设计规格（定稿：schema + 模块） | [docs/v1.0.0/design.md](docs/v1.0.0/design.md) |
-| 测试用例（待写） | docs/v1.0.0/testcases.md |
-| 迭代过程文档（模拟推演、三轮需求澄清、两轮设计裁决） | docs/v1.0.0/details/ |
-| 实现计划（待拆） | docs/v1.0.0/plans/ |
+| `requirements.md` | 需求规格：产品定位、架构铁律、本体/流程/检索/三端交互需求及全部裁决 |
+| `design.md` | 设计规格：本体 schema、事件溯源、模块划分、LLM 接口、扩展包与级联引擎 |
+| `testcases.md` | 黑盒测试用例：验收基准，反向链接需求与裁决 |
+| `plans/` | 实现计划：按子系统拆分的 TDD 执行计划 |
+| `details/` | 迭代过程文档：模拟推演走查、各轮澄清的原始记录 |
 
 ## 许可证
 
