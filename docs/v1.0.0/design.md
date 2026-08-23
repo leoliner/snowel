@@ -149,6 +149,22 @@ proposals(
 
 - 确认/否决不删行，状态迁移写入事件日志（§3.2）；生成端提示词注入近期被否决提案，防止重复提案（D7）。
 
+```mermaid
+stateDiagram-v2
+    [*] --> pending : 生成即入库
+    pending --> stale : 上游 revision/retcon（自动）
+    stale --> pending : 重新生成
+    stale --> confirmed : 强行确认（级联照跑）
+    pending --> confirmed : 作者确认
+    pending --> rejected : 作者否决（创作决策）
+    stale --> rejected : 作者否决
+    pending --> voided : 手动作废（队列清理）
+    stale --> voided : 手动作废
+    confirmed --> [*]
+    rejected --> [*]
+    voided --> [*]
+```
+
 ## 4. 检索层映射
 
 - **正文全文镜像（D8）**：章节镜像表存全文 + 哈希；FTS5 与段落向量均从镜像构建。Markdown 文件仍是真相源：启动/定期对账，哈希不一致时以文件为准重灌镜像。
@@ -171,7 +187,22 @@ snowel_core/
   storage/      # SQLite 连接/事务、事件日志、projector（E2）、FTS、vec、租约（C10）
 ```
 
-**依赖方向**：api → {flow, proposal, consistency, retrieval, writeback, ontology} → {llm, storage}；同层之间不互相 import（flow 编排 proposal/consistency 一律经 api 内部服务层或显式注入）。
+**依赖方向**：同层之间不互相 import（flow 编排 proposal/consistency 一律经 api 内部服务层或显式注入）。
+
+```mermaid
+flowchart TD
+    API["api/（唯一门面）"]
+    FLOW["flow/ 雪花流程编排"]
+    PROP["proposal/ 提案队列"]
+    CON["consistency/ 规则引擎·retcon·state_at"]
+    RET["retrieval/ compose_context·审计"]
+    WB["writeback/ 抽取管线·镜像对账"]
+    ONT["ontology/ 类型与属性组注册表"]
+    LLM["llm/ litellm 适配（三口唯一实现）"]
+    STO["storage/ SQLite·事件日志·projector·FTS·vec·租约"]
+    API --> FLOW & PROP & CON & RET & WB & ONT
+    FLOW & PROP & CON & RET & WB & ONT --> LLM & STO
+```
 
 **事务规则**：storage 只提供 `with core.transaction() as tx:` 上下文，领域模块在事务内调 storage 原子操作；投影器在同一事务内应用事件与刷新索引（D1 检查点的增量应用与事件追加原子绑定）。
 
