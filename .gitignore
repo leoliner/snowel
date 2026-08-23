@@ -1,9 +1,8 @@
-.claude/
-CLAUDE.md
-backend/venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 .DS_Store
+backend/venv/
 data/
 # superpowers SDD 工作区：会话草稿（ledger 收尾归档至 docs/v*/plans/<plan>/ledger.md）
 .superpowers/
