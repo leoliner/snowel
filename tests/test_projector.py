@@ -131,3 +131,21 @@ def test_revision_applied_moves_node_address(tmp_path):
     so = {r["id"]: r["story_order"] for r in conn.execute(
         "SELECT id, story_order FROM nodes WHERE id LIKE 'ch%'")}
     assert so["ch2"] < so["ch1"]
+
+def test_rebuild_reproduces_identical_state(tmp_path):  # D1/TC-EV-05
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _confirmed(conn, [NODE_FACT,
+        {"fact": "node", "id": "n-x", "types": ["Concept"], "name": "玩家", "props": {}}])
+    _ev(conn, "retcon_applied", {"renames": [
+        {"node_id": "n-linwan", "old_name": "林晚", "new_name": "江晚"}], "notes": ""})
+    projector.apply(conn)
+    before = [tuple(r) for r in conn.execute(
+        "SELECT * FROM nodes ORDER BY id")]
+    edge_before = conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+    projector.rebuild(conn)
+    after = [tuple(r) for r in conn.execute(
+        "SELECT * FROM nodes ORDER BY id")]
+    assert before == after
+    assert conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0] == edge_before
+    assert conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()["seq"] == \
+        events.head_seq(conn)

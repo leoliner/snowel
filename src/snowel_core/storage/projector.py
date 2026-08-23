@@ -110,6 +110,14 @@ def _checkpoint(conn) -> int:
     row = conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()
     return row["seq"] if row else 0
 
+def rebuild(conn: sqlite3.Connection) -> None:
+    """全量重建：清空物化表后重放全部事件（D1：检查点永不过期、可随时重建）。"""
+    from .db import transaction
+    with transaction(conn):
+        for t in ("alias", "edges", "nodes", "tracks", "checkpoint"):
+            conn.execute(f"DELETE FROM {t}")
+        apply(conn)
+
 def apply(conn: sqlite3.Connection) -> None:
     """物化 checkpoint 之后的事件。必须在调用方事务内调用。"""
     last = _checkpoint(conn)
