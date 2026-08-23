@@ -71,6 +71,41 @@ HANDLERS.update({
     "track_frozen": _track_frozen,
 })
 
+def _addr_key(props: dict) -> tuple:
+    a = props.get("address") or {}
+    return (a.get("volume", 0), a.get("chapter", 0), a.get("scene", 0), a.get("beat", 0))
+
+def recompute_story_order(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("SELECT id, props FROM nodes WHERE active=1").fetchall()
+    addressed = []
+    for r in rows:
+        p = json.loads(r["props"])
+        if p.get("address"):
+            addressed.append((_addr_key(p), r["id"]))
+    addressed.sort()
+    order = {nid: i for i, (_, nid) in enumerate(addressed)}
+    conn.executemany("UPDATE nodes SET story_order=? WHERE id=?",
+                     [(order.get(r["id"]), r["id"]) for r in rows])
+    # 边有效期：拍地址 → story_order
+    for e in conn.execute("SELECT id, props FROM edges").fetchall():
+        p = json.loads(e["props"])
+        vf, vu = p.get("valid_from_beat"), p.get("valid_until_beat")
+        conn.execute("UPDATE edges SET valid_from=?, valid_until=? WHERE id=?",
+                     (order.get(vf) if vf else None,
+                      order.get(vu) if vu else None, e["id"]))
+
+def _revision_applied(tx, payload, seq):
+    for ch in payload.get("structure_changes", []):
+        if ch.get("op") == "move":
+            props = tx.execute("SELECT props FROM nodes WHERE id=?",
+                               (ch["node_id"],)).fetchone()
+            p = json.loads(props["props"]); p["address"] = ch["address"]
+            tx.execute("UPDATE nodes SET props=? WHERE id=?",
+                       (json.dumps(p, ensure_ascii=False), ch["node_id"]))
+    recompute_story_order(tx)
+
+HANDLERS["revision_applied"] = _revision_applied
+
 def _checkpoint(conn) -> int:
     row = conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()
     return row["seq"] if row else 0
@@ -85,6 +120,7 @@ def apply(conn: sqlite3.Connection) -> None:
         handler = HANDLERS.get(r["kind"])
         if handler:
             handler(conn, payload, r["seq"])
+    recompute_story_order(conn)  # 任何含地址事实的事件后派生序保持最新
     if rows:
         conn.execute(
             "INSERT INTO checkpoint(id, seq) VALUES(1, ?) "

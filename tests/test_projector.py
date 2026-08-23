@@ -88,3 +88,46 @@ def test_unknown_kind_is_noop(tmp_path):
     _ev(conn, "volume_sealed", {"volume_id": "v1"})  # 后续计划的 kind
     projector.apply(conn)  # 不抛错，水位线照常推进
     assert conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()["seq"] == 1
+
+def _addr_node(nid, name, addr):
+    return {"fact": "node", "id": nid, "types": ["Chapter"], "name": name,
+            "props": {"address": addr}}
+
+def test_story_order_stable_on_insertion(tmp_path):  # TC-ON-09 / D4
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _confirmed(conn, [
+        _addr_node("ch2", "第二章", {"volume": 1, "chapter": 2, "scene": 0, "beat": 0}),
+        _addr_node("ch3", "第三章", {"volume": 1, "chapter": 3, "scene": 0, "beat": 0}),
+    ])
+    projector.apply(conn)
+    so = {r["id"]: r["story_order"] for r in conn.execute(
+        "SELECT id, story_order FROM nodes WHERE id LIKE 'ch%'")}
+    assert so["ch2"] < so["ch3"]
+    # 插章：ch3 让位到 chapter 4、新章占 chapter 3
+    _ev(conn, "revision_applied", {"structure_changes": [
+        {"op": "move", "node_id": "ch3", "address": {"volume": 1, "chapter": 4,
+         "scene": 0, "beat": 0}}]})
+    with db.transaction(conn) as tx:
+        events.append_event(tx, "proposal_confirmed", {"proposal_id": "p2",
+            "artifact_type": "structure", "facts": [
+                _addr_node("ch25", "新章", {"volume": 1, "chapter": 3,
+                 "scene": 0, "beat": 0})]})
+    projector.apply(conn)
+    so = {r["id"]: r["story_order"] for r in conn.execute(
+        "SELECT id, story_order FROM nodes WHERE id LIKE 'ch%'")}
+    assert so["ch2"] < so["ch25"] < so["ch3"]          # 派生序重排
+    # ID 与历史引用不动：
+    assert conn.execute("SELECT COUNT(*) FROM nodes WHERE id='ch3'").fetchone()[0] == 1
+
+def test_revision_applied_moves_node_address(tmp_path):
+    conn = db.connect(tmp_path / "s.db"); db.migrate(conn)
+    _confirmed(conn, [_addr_node("ch1", "一", {"volume": 1, "chapter": 1, "scene": 0, "beat": 0}),
+                      _addr_node("ch2", "二", {"volume": 1, "chapter": 2, "scene": 0, "beat": 0})])
+    projector.apply(conn)
+    _ev(conn, "revision_applied", {"structure_changes": [
+        {"op": "move", "node_id": "ch2",
+         "address": {"volume": 1, "chapter": 0, "scene": 0, "beat": 0}}]})
+    projector.apply(conn)
+    so = {r["id"]: r["story_order"] for r in conn.execute(
+        "SELECT id, story_order FROM nodes WHERE id LIKE 'ch%'")}
+    assert so["ch2"] < so["ch1"]
