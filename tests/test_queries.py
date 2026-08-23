@@ -34,6 +34,51 @@ def test_state_at_filters_by_validity(tmp_path):
     assert {e["id"] for e in p3["edges"]} == set()      # valid_until=1 已过期
 
 
+def _seed(tmp_path):
+    conn = _mk(tmp_path)
+    _confirm(conn, [
+        {"fact": "node", "id": "n1", "types": ["Character", "Concept"],
+         "name": "江晚", "props": {}},
+        {"fact": "node", "id": "n2", "types": ["Concept"], "name": "轮回游戏", "props": {}},
+        {"fact": "node", "id": "n3", "types": ["Mechanism"], "name": "积分兑换", "props": {}},
+        {"fact": "edge", "id": "e1", "src": "n2", "dst": "n3", "kind": "REQUIRES", "props": {}},
+        {"fact": "edge", "id": "e2", "src": "n3", "dst": "n2", "kind": "IS_A", "props": {}},
+    ])
+    with db.transaction(conn) as tx:
+        events.append_event(tx, "retcon_applied", {"renames": [
+            {"node_id": "n1", "old_name": "林晚", "new_name": "江晚"}], "notes": ""})
+    projector.apply(conn)
+    return conn
+
+
+def test_find_nodes_by_alias_and_type(tmp_path):
+    conn = _seed(tmp_path)
+    assert queries.find_nodes(conn, name="林晚")[0]["id"] == "n1"   # alias 命中
+    assert queries.find_nodes(conn, name="江晚")[0]["id"] == "n1"
+    assert {r["id"] for r in queries.find_nodes(conn, type="Concept")} == {"n1", "n2"}
+
+
+def test_get_node(tmp_path):
+    conn = _seed(tmp_path)
+    assert queries.get_node(conn, "n1")["name"] == "江晚"
+    assert queries.get_node(conn, "nope") is None
+
+
+def test_edges_of_both_directions(tmp_path):
+    conn = _seed(tmp_path)
+    out = queries.edges_of(conn, "n2", "out")
+    assert [e["id"] for e in out] == ["e1"]
+    both = queries.edges_of(conn, "n3")
+    assert {e["id"] for e in both} == {"e1", "e2"}
+
+
+def test_descendants_recursive_cte(tmp_path):
+    conn = _seed(tmp_path)
+    # e1: n2->n3, e2: n3->n2 构成环：递归 CTE 必须不死循环
+    ds = queries.descendants(conn, "n2", max_depth=5)
+    assert {r["id"] for r in ds} == {"n3"}
+
+
 def test_state_at_uses_current_effective_version(tmp_path):  # C9 修正后视角
     conn = _mk(tmp_path)
     _confirm(conn, [{"fact": "node", "id": "n1", "types": ["Character"],
