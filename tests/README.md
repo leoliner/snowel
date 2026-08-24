@@ -15,11 +15,13 @@
 | `ontology/test_ontology.py` | `ontology/`（属性组注册表/completeness） | TC-ON-03/04/05（推导面） |
 | `proposal/test_proposal.py` | `proposal/queue.py`（提案状态机） | TC-PR-01~07、TC-EV-07/08 |
 | `api/test_api.py` | `api.py`（门面端到端） | 冒烟：init→create→confirm→query→rebuild |
+| `shell/`（test_project / test_mcp_server / test_cli / test_lease_integration） | 壳包 `snowel`（project.py/cli.py/mcp_server.py） | TC-SH-01/02/04/05/06、TC-SH-03 子集、TC-SH-07（status/backup；export 豁免） |
 
 ## 2. 运行
 
 ```bash
 pip install -e . pytest   # 首次
+pip install -e . -e ./shell
 pytest                    # 全量
 pytest tests/storage      # 单模块
 ```

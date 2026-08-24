@@ -24,3 +24,9 @@ def transaction(conn: sqlite3.Connection):
         raise
     else:
         conn.execute("COMMIT")
+
+def backup(conn: sqlite3.Connection, out_path) -> None:
+    out = Path(out_path)
+    if out.exists():
+        raise FileExistsError(f"备份文件已存在：{out}")
+    conn.execute("VACUUM INTO ?", (str(out),))

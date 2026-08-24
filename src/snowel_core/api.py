@@ -5,6 +5,9 @@ from .proposal.queue import ProposalQueue
 from .storage import db, lease, queries
 from .storage.projector import rebuild as _rebuild
 
+class ProjectNotFoundError(Exception):
+    """open() 目标目录缺少 snowel.db（L3：不静默新建空库）"""
+
 class SnowelAPI:
     def __init__(self, conn):
         self._conn = conn
@@ -18,7 +21,10 @@ class SnowelAPI:
 
     @classmethod
     def open(cls, path) -> "SnowelAPI":
-        return cls(db.connect(Path(path) / "snowel.db"))
+        db_path = Path(path) / "snowel.db"
+        if not db_path.exists():
+            raise ProjectNotFoundError(f"未找到项目库：{db_path}")
+        return cls(db.connect(db_path))
 
     def close(self):
         self._conn.close()
@@ -39,8 +45,14 @@ class SnowelAPI:
     def descendants(self, node_id, kinds=None, max_depth=10):
         return queries.descendants(self._conn, node_id, kinds, max_depth)
 
+    def graph_stats(self) -> dict:
+        return queries.graph_stats(self._conn)
+
     def rebuild(self):
         _rebuild(self._conn)
+
+    def backup(self, out_path) -> None:
+        db.backup(self._conn, out_path)
 
     # 租约（C10）
     def acquire_lease(self, holder: str, stale_after: float = 30.0) -> bool:
