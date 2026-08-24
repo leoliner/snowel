@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from .proposal.queue import ProposalQueue
-from .storage import db, lease, queries
+from .storage import db, lease, queries, vec
 from .storage.projector import rebuild as _rebuild
 
 class ProjectNotFoundError(Exception):
@@ -16,7 +16,7 @@ class SnowelAPI:
     @classmethod
     def init_project(cls, path) -> "SnowelAPI":
         p = Path(path); p.mkdir(parents=True, exist_ok=True)
-        conn = db.connect(p / "snowel.db"); db.migrate(conn)
+        conn = db.connect(p / "snowel.db"); db.migrate(conn); vec.ensure(conn)
         return cls(conn)
 
     @classmethod
@@ -24,7 +24,8 @@ class SnowelAPI:
         db_path = Path(path) / "snowel.db"
         if not db_path.exists():
             raise ProjectNotFoundError(f"未找到项目库：{db_path}")
-        return cls(db.connect(db_path))
+        conn = db.connect(db_path); vec.ensure(conn)
+        return cls(conn)
 
     def close(self):
         self._conn.close()

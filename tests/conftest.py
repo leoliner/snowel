@@ -13,7 +13,8 @@ def core_conn(tmp_path):
 @pytest.fixture
 def api(tmp_path):
     from snowel_core.api import SnowelAPI
-    a = SnowelAPI.init_project(tmp_path)
+    # 独立子目录：与 core_conn（tmp_path/snowel.db）分开，两库互不影响
+    a = SnowelAPI.init_project(tmp_path / "api")
     yield a
     a.close()
 
