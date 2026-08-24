@@ -23,7 +23,7 @@ def _alive(conn, node_ids, story_order):
     return out
 
 
-def _unrecovered(conn, row, story_order) -> bool:
+def unrecovered(conn, row, story_order) -> bool:
     payoff = json.loads(row["props"]).get("core", {}).get("payoff_beat")
     if payoff is None:
         return True
@@ -65,7 +65,7 @@ def compose_context(conn: sqlite3.Connection, strategy: str,
                                           trim_core=True))
         open_fs = [r for r in conn.execute(
             "SELECT * FROM nodes WHERE active=1") if "Foreshadow" in r["types"]
-            and _unrecovered(conn, r, so)]  # 已回收（payoff 拍 ≤ 目标拍）剔除，"∩ 相关"v1 不做
+            and unrecovered(conn, r, so)]  # 已回收（payoff 拍 ≤ 目标拍）剔除，"∩ 相关"v1 不做
         sections.append(_node_section("foreshadows", open_fs))
         world = [r for r in conn.execute(
             "SELECT * FROM nodes WHERE active=1") if "Concept" in r["types"]]
