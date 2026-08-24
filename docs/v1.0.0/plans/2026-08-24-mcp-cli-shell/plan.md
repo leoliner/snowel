@@ -1224,6 +1224,8 @@ git commit -m "test(shell): cross-shell lease integration and test index"
 
 计划批准后交 **dev-workflow** skill 执行：worktree 隔离 + feat 分支、ledger 两段制、控制器纪律、收尾清单（终审 → 修复波 → 合并 dev-1.0.0 → 归档 ledger 至本目录 → 更新 AGENTS.md 阶段指针 → 推送）。PR 时机仍为 v1.0.0 里程碑（用户发话）。
 
-## 6. 执行结果（执行后由收尾流程回填）
+## 6. 执行结果（2026-08-24 收尾回填）
 
-- 待回填：提交范围、测试计数、终审发现、新挂账。
+- 执行：feat/mcp-cli-shell（worktree 隔离），9 提交 f4e9879..593aa9b，6 任务全部完成（T4/T5 各 1 轮修环，复审闭环），终审判 With fixes → 修复波 593aa9b（main() 释放租约 + CLI 选项优先级测试）→ 定向复审 2/2 ADDRESSED。
+- 合并：merge commit 70b1b35 入 dev-1.0.0，合并后全量 69/69 通过（core 37 + shell 32）。
+- 挂账：L3 本计划修复关闭；新增 L5（心跳失租后 readonly 不翻转双写窗口，归回写环计划）。裁决与随行小项完整明细：同目录 `ledger.md`。
