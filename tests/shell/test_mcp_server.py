@@ -263,3 +263,35 @@ async def test_write_rejected_when_readonly(project):  # TC-SH-04 壳层
             assert res.isError  # require_write 拒绝 → MCP 错误响应
     finally:
         blocker.close()
+
+
+async def test_confirm_prose_via_mcp_writes_chapter_file(project):
+    # 修复轮 F1：confirm 必须经 api.confirm 编排——prose 提案确认即代写文件（C1）
+    async with _connected(project, backend=FakeBackend([
+            json.dumps({"draft": "雨夜正文", "facts": [], "appeared": []})
+    ])) as (ctx, client):
+        g = await _call(client, "snowel_generate", {
+            "artifact_type": "prose", "locate": {"chapter": "ch1"}})
+        done = await _call(client, "snowel_proposal", {
+            "action": "confirm", "proposal_id": g["proposal_id"]})
+        assert done["event_seq"] >= 1
+    assert (project / "chapters" / "ch1.md").read_text(
+        encoding="utf-8") == "雨夜正文"
+
+
+async def test_reconcile_rejected_when_readonly(project):
+    # 修复轮 F2：reconcile 会写库（事件+镜像），readonly 上下文必须拒绝（L5 同类窗口）
+    api = SnowelAPI.open(project)
+    from snowel_core.writeback import mirror
+    mirror.write_prose(api._conn, project, "ch1", "旧稿")
+    api.close()
+    (project / "chapters" / "ch1.md").write_text("外部新稿", encoding="utf-8")
+    blocker = open_project(project, heartbeat=False)
+    try:
+        async with _connected(project) as (ctx, client):
+            assert ctx.readonly is True
+            res = await client.call_tool("snowel_writeback",
+                                         {"action": "reconcile"})
+            assert res.isError  # require_write 拒绝 → MCP 错误响应
+    finally:
+        blocker.close()

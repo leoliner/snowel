@@ -113,7 +113,7 @@ def build_mcp(ctx: ProjectContext, backend=None) -> FastMCP:
             raise ValueError(f"{action} 需要 proposal_id")
         ctx.require_write()
         if action == "confirm":
-            seq = ctx.api.proposals.confirm(proposal_id)
+            seq = ctx.api.confirm(proposal_id)  # 统一编排（C1 代写/revision 物化）
             return {"confirmed": proposal_id, "event_seq": seq}
         if action == "reject":
             ctx.api.proposals.reject(proposal_id, reason)
@@ -149,6 +149,7 @@ def build_mcp(ctx: ProjectContext, backend=None) -> FastMCP:
             return {"result": ctx.api.reject_auto(entries,
                                                   reason=p.get("reason"))}
         if action == "reconcile":
+            ctx.require_write()  # 对账会写事件+镜像（F2：readonly 不得写库）
             return {"result": ctx.api.reconcile_prose()}
         if action == "re-register":  # L6：崩溃窗口恢复（重放已确认 prose 提案）
             ctx.require_write()
