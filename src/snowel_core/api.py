@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from .proposal.queue import ProposalQueue
-from .storage import db, lease, queries, vec
+from .storage import db, events, lease, projector, queries, vec
 from .storage.projector import rebuild as _rebuild
 
 class ProjectNotFoundError(Exception):
@@ -87,6 +87,17 @@ class SnowelAPI:
         from .flow import snowflake
         return snowflake.expand_volume(self, volume_id, backend, extra)
 
+    # 统一 revision（§5.2/FL-06）：三层同口，提案→确认→revision_applied
+    def propose_revision(self, node_id: str, new_address: dict,
+                         reason: str = "") -> str:
+        from .flow import revision
+        return revision.propose_revision(self, node_id, new_address, reason)
+
+    # 提案改写（D7 rewrite）：新提案标 rewritten_from，原提案留队不动
+    def rewrite_proposal(self, proposal_id: str, instruction: str, backend) -> str:
+        from .flow import revision
+        return revision.rewrite_proposal(self, proposal_id, instruction, backend)
+
     # 租约（C10）
     def acquire_lease(self, holder: str, stale_after: float = 30.0) -> bool:
         return lease.acquire(self._conn, holder, stale_after)
@@ -107,6 +118,17 @@ class SnowelAPI:
             from .writeback import mirror
             mirror.write_prose(self._conn, self._root,
                                payload["chapter_id"], payload["content"])
+        if p["kind"] == "revision":  # §5.2：结构变更二段物化（E2 维持 int 返回）
+            payload = json.loads(p["payload"])
+            with db.transaction(self._conn):
+                events.append_event(self._conn, "revision_applied", {
+                    "structure_changes": payload.get("structure_changes", [])})
+                projector.apply(self._conn)
+            # C5（revision 面）：pending 全标 stale，受影响分析归级联检查计划
+            for row in self.proposals.list(status="pending"):
+                self.proposals.mark_stale(
+                    row["id"],
+                    f"上游 revision：{payload.get('node_id', '')} 结构变更")
         return seq
 
     # 抽取回写（铁律 1：三端唯一入口，口签名住 llm/ports.py）

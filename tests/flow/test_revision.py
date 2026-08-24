@@ -1,0 +1,58 @@
+# tests/flow/test_revision.py
+import json
+from tests.conftest import FakeBackend
+from snowel_core.flow import revision
+from snowel_core.storage import db, events, projector
+
+
+def _seed_two_volumes(api):
+    with db.transaction(api._conn):
+        events.append_event(api._conn, "proposal_confirmed", {
+            "artifact_type": "structure", "facts": [
+                {"fact": "node", "id": "v1", "types": ["Volume"], "name": "卷一",
+                 "props": {}},
+                {"fact": "node", "id": "v2", "types": ["Volume"], "name": "卷二",
+                 "props": {}},
+                {"fact": "node", "id": "c5", "types": ["Chapter"], "name": "第5章",
+                 "props": {"volume": "v2",
+                           "address": {"volume": 2, "chapter": 1,
+                                       "scene": 0, "beat": 0}}},
+                {"fact": "node", "id": "c9", "types": ["Chapter"], "name": "第9章",
+                 "props": {"volume": "v2",
+                           "address": {"volume": 2, "chapter": 2,
+                                       "scene": 0, "beat": 0}}}]})
+        projector.apply(api._conn)
+
+
+def test_revision_unified_flow(api):  # TC-FL-06：章改卷走统一提案→确认
+    _seed_two_volumes(api)
+    pid = api.propose_revision("c5", {"volume": 1, "chapter": 9,
+                                      "scene": 0, "beat": 0}, reason="章改卷")
+    assert api.proposals.get(pid)["kind"] == "revision"
+    seq = api.confirm(pid)
+    ev = api._conn.execute(
+        "SELECT payload FROM events WHERE kind='revision_applied'").fetchone()
+    p = json.loads(ev["payload"])
+    assert p["structure_changes"][0]["node_id"] == "c5"
+    assert api.get_node("c5")["story_order"] < api.get_node("c9")["story_order"]
+
+
+def test_revision_marks_pending_stale(api):  # C5（revision 面）
+    _seed_two_volumes(api)
+    other = api.proposals.create("scene", {"draft": "x"})   # 无关 pending
+    pid = api.propose_revision("c5", {"volume": 1, "chapter": 9,
+                                      "scene": 0, "beat": 0})
+    api.confirm(pid)
+    row = api.proposals.get(other)
+    assert row["status"] == "stale"
+    assert "revision" in row["stale_hint"]
+
+
+def test_rewrite_proposal_keeps_original(api):
+    p1 = api.proposals.create("premise", {"draft": "原稿"})
+    fake = FakeBackend([json.dumps({"draft": "改写稿", "facts": [],
+                                     "appeared": []}, ensure_ascii=False)])
+    p2 = api.rewrite_proposal(p1, "更黑暗一点", backend=fake)
+    assert api.proposals.get(p2)["status"] == "pending"
+    assert json.loads(api.proposals.get(p2)["payload"])["rewritten_from"] == p1
+    assert api.proposals.get(p1)["status"] == "pending"   # 原提案不动
