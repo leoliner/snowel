@@ -65,3 +65,32 @@ def test_hybrid_search_marks_dead(core_conn):  # TC-RT-03 兜底标记
     dead = [h for h in r["nodes"] if h["node_id"] == "dead1"]
     # mb0 → story_order 0（recompute_story_order 派生序 0 基），附"已死亡@拍"
     assert dead and dead[0]["dead_beat"] == 0
+
+
+def test_fallback_recall_excludes_todo(core_conn):  # TODO 不进任何 section：兜底召回同理
+    _seed_book(core_conn)
+    _confirm(core_conn, [
+        {"fact": "node", "id": "todo2", "types": ["Concept"], "name": "轮回规则草稿",
+         "props": {"core": {"todo": True}}}])
+    bundle = context.compose_context(
+        core_conn, "generic", locate={"query": "轮回"})
+    fb = [s for s in bundle["sections"] if s["kind"] == "fallback_recall"]
+    assert fb and "w1" in fb[0]["refs"]
+    assert "todo2" not in fb[0]["refs"]        # refs 不含 TODO 命中
+    assert "todo2" not in fb[0]["text"]        # text 载荷同样排除
+
+
+def test_foreshadows_only_unrecovered(core_conn):  # 已回收伏笔不进 section
+    _seed_book(core_conn)
+    _confirm(core_conn, [
+        {"fact": "node", "id": "fs2", "types": ["Foreshadow"], "name": "信物",
+         "props": {"core": {"payoff_beat": "mb0"}}},  # 回收拍 mb0→story_order 0≤1：已回收
+        {"fact": "node", "id": "fs3", "types": ["Foreshadow"], "name": "暗门",
+         "props": {"core": {"payoff_beat": "nb"}}},   # 回收拍未编址（序 None）：仍开放
+        {"fact": "node", "id": "nb", "types": ["MicroBeat"], "name": "终局",
+         "props": {}},
+    ])
+    bundle = context.compose_context(
+        core_conn, "prose", locate={"chapter": "ch1", "story_order": 1})
+    fs = bundle["sections"][2]
+    assert fs["refs"] == ["fs1", "fs3"]        # fs1 无 payoff 开放；fs2 已回收剔除

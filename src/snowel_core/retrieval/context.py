@@ -23,6 +23,20 @@ def _alive(conn, node_ids, story_order):
     return out
 
 
+def _unrecovered(conn, row, story_order) -> bool:
+    payoff = json.loads(row["props"]).get("core", {}).get("payoff_beat")
+    if payoff is None:
+        return True
+    d = queries.get_node(conn, payoff)
+    return d is None or d["story_order"] is None or d["story_order"] > story_order
+
+
+def _todo(conn, node_id) -> bool:
+    row = queries.get_node(conn, node_id)
+    return row is not None and bool(
+        json.loads(row["props"]).get("core", {}).get("todo"))
+
+
 def _node_section(conn, kind, rows, trim_core=False):
     rows = [r for r in rows
             if not json.loads(r["props"]).get("core", {}).get("todo")]
@@ -50,7 +64,8 @@ def compose_context(conn: sqlite3.Connection, strategy: str,
             sections.append(_node_section(conn, "characters", chars,
                                           trim_core=True))
         open_fs = [r for r in conn.execute(
-            "SELECT * FROM nodes WHERE active=1") if "Foreshadow" in r["types"]]
+            "SELECT * FROM nodes WHERE active=1") if "Foreshadow" in r["types"]
+            and _unrecovered(conn, r, so)]  # 已回收（payoff 拍 ≤ 目标拍）剔除，"∩ 相关"v1 不做
         sections.append(_node_section(conn, "foreshadows", open_fs))
         world = [r for r in conn.execute(
             "SELECT * FROM nodes WHERE active=1") if "Concept" in r["types"]]
@@ -66,10 +81,12 @@ def compose_context(conn: sqlite3.Connection, strategy: str,
     q = locate.get("query") or locate.get("chapter") or ""
     if q:
         fallback = hybrid.search(conn, q, mode="hybrid")
-        if fallback["nodes"] or fallback["paragraphs"]:
+        kept = [n for n in fallback["nodes"] if not _todo(conn, n["node_id"])]
+        if kept or fallback["paragraphs"]:  # TODO 命中不进 section（refs 与 text 均排除）
             sections.append({"kind": "fallback_recall",
-                             "refs": [n["node_id"] for n in fallback["nodes"]],
-                             "text": json.dumps(fallback, ensure_ascii=False)})
+                             "refs": [n["node_id"] for n in kept],
+                             "text": json.dumps({**fallback, "nodes": kept},
+                                                ensure_ascii=False)})
     bundle = {"strategy": strategy, "locate": locate, "sections": sections}
     bundle["audit_id"] = audit.record(conn, strategy, locate, dry_run, bundle)
     return bundle
