@@ -111,6 +111,22 @@ def _revision_applied(tx, payload, seq):
 
 HANDLERS["revision_applied"] = _revision_applied
 
+def _prose_event(tx, payload: dict, seq: int):
+    # P1：事件只登记哈希；全文由 writeback 对账从文件灌入
+    h = payload.get("hash") or payload["new_hash"]  # external_change 登记新哈希
+    tx.execute(
+        """INSERT INTO chapter_prose(chapter_id, path, hash, prose, updated_event)
+           VALUES(?,?,?,?,?)
+           ON CONFLICT(chapter_id) DO UPDATE SET
+             hash=excluded.hash, path=excluded.path,
+             updated_event=excluded.updated_event""",
+        (payload["chapter_id"], payload["path"], h, "", seq))
+
+HANDLERS.update({
+    "prose_hash_registered": _prose_event,
+    "prose_external_change": _prose_event,
+})
+
 def _checkpoint(conn) -> int:
     row = conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()
     return row["seq"] if row else 0
@@ -119,7 +135,7 @@ def rebuild(conn: sqlite3.Connection) -> None:
     """全量重建：清空物化表后重放全部事件（D1：检查点永不过期、可随时重建）。"""
     from .db import transaction
     with transaction(conn):
-        for t in ("alias", "edges", "nodes", "tracks", "checkpoint"):
+        for t in ("alias", "edges", "nodes", "tracks", "chapter_prose", "checkpoint"):
             conn.execute(f"DELETE FROM {t}")
         apply(conn)
 

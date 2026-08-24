@@ -57,3 +57,10 @@ CREATE TABLE IF NOT EXISTS config(
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chapter_prose(
+  chapter_id    TEXT PRIMARY KEY,
+  path          TEXT NOT NULL,
+  hash          TEXT NOT NULL,
+  prose         TEXT NOT NULL DEFAULT '',
+  updated_event INTEGER NOT NULL REFERENCES events(seq)
+);
