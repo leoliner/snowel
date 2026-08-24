@@ -48,6 +48,7 @@ def reconcile(conn: sqlite3.Connection, project_root: Path) -> list[dict]:
                     conn.execute(
                         "UPDATE chapter_prose SET prose=? WHERE chapter_id=?",
                         (content, r["chapter_id"]))
+                    fts.refresh(conn)  # 水化后同事务重灌，修复后立即可检
             continue  # 已登记写入短路（TC-WB-02）：核心代写的文件不再触发
         with transaction(conn):
             events.append_event(conn, "prose_external_change", {
@@ -56,5 +57,6 @@ def reconcile(conn: sqlite3.Connection, project_root: Path) -> list[dict]:
             projector.apply(conn)
             conn.execute("UPDATE chapter_prose SET prose=? WHERE chapter_id=?",
                          (content, r["chapter_id"]))
+            fts.refresh(conn)  # apply 时 prose 列尚未水化，水化后同事务重灌
         changes.append({"chapter_id": r["chapter_id"], "status": "external_change"})
     return changes

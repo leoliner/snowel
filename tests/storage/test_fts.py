@@ -46,6 +46,21 @@ def test_fts_searchable_immediately_after_write_prose(core_conn, tmp_path):
     assert r["paragraphs"][0]["para_idx"] == 1
 
 
+def test_fts_searchable_immediately_after_reconcile(core_conn, tmp_path):
+    # 修复轮扩展：reconcile 两分支（external_change / 空稿修复）水化后同事务重灌 FTS
+    from snowel_core.writeback import mirror
+    mirror.write_prose(core_conn, tmp_path, "chR", "旧稿\n\n第一段")
+    f = mirror.prose_path(tmp_path, "chR")
+    f.write_text("新稿\n\n管理员在雪夜换了灯塔钥匙", encoding="utf-8")
+    mirror.reconcile(core_conn, tmp_path)  # (a) external_change 分支
+    r = fts.search(core_conn, "灯塔钥匙")
+    assert r["paragraphs"] and r["paragraphs"][0]["chapter_id"] == "chR"
+    projector.rebuild(core_conn)  # (b) rebuild 模拟：重放后 prose 列回空、FTS 灌入空串
+    mirror.reconcile(core_conn, tmp_path)  # 空稿修复分支
+    r2 = fts.search(core_conn, "灯塔钥匙")
+    assert r2["paragraphs"] and r2["paragraphs"][0]["chapter_id"] == "chR"
+
+
 def test_fts_retraction_removes_hit(core_conn):
     _confirm(core_conn, [{"fact": "node", "id": "n1", "types": ["Concept"],
                           "name": "临时设定", "props": {}}])
