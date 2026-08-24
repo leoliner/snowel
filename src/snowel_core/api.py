@@ -64,6 +64,12 @@ class SnowelAPI:
         from .flow import state
         return state.flow_state(self._conn)
 
+    # 生成环（E3/D7）：产出必进提案队列，门面不暴露任何直接返回生成文本的路径
+    def ai_generate(self, artifact_type: str, locate: dict | None = None,
+                    extra: dict | None = None, backend=None) -> str:
+        from .flow import generate
+        return generate.ai_generate(self, artifact_type, locate, extra, backend)
+
     # 租约（C10）
     def acquire_lease(self, holder: str, stale_after: float = 30.0) -> bool:
         return lease.acquire(self._conn, holder, stale_after)
