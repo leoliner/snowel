@@ -5,12 +5,16 @@ import sqlite3
 LAYERS = ["premise", "synopsis", "summary", "beat_sheet",
           "characters", "scenes", "prose"]
 
+_LAYER_ALIASES = {"scenes": "scene"}  # 层名与提案 kind 不一致处（LAYERS 复数 vs kind 单数）
+
 
 def flow_state(conn: sqlite3.Connection) -> dict:
     """雪花流程状态：层进度 + 卷章树（TC-FL-03：只报存在物，未展开不报缺）。"""
     done_kinds = {r["kind"] for r in conn.execute(
         "SELECT DISTINCT p.kind FROM proposals p WHERE p.status='confirmed'")}
-    layers = {k: ("done" if k in done_kinds else "todo") for k in LAYERS}
+    layers = {k: ("done" if k in done_kinds
+                  or _LAYER_ALIASES.get(k) in done_kinds else "todo")
+              for k in LAYERS}
     volumes = []
     for v in conn.execute(
             "SELECT id, name, types FROM nodes WHERE active=1"):

@@ -1,7 +1,8 @@
 # src/snowel_core/flow/generate.py
 import json
 
-from ..retrieval.context import _scene_of_chapter, compose_context
+from ..llm.ports import get_backend, parse_llm_json
+from ..retrieval.context import compose_context, scene_of_chapter
 from .registry import ARTIFACTS
 
 RETURN_CONTRACT = (
@@ -24,7 +25,7 @@ def _prepare_locate(conn, strategy: str, locate: dict | None) -> dict:
     （chapter id 兜底不可接受）；无场景卡时沿用调用方显式 query。"""
     locate = dict(locate or {})
     if strategy == "prose" and locate.get("chapter"):
-        scene = _scene_of_chapter(conn, locate["chapter"])
+        scene = scene_of_chapter(conn, locate["chapter"])
         if scene is not None:
             props = json.loads(scene["props"])
             locate["query"] = " ".join(
@@ -53,7 +54,7 @@ def ai_generate(api, artifact_type: str, locate: dict | None = None,
         *([f"=== 作者附言 ===\n{extra['notes']}"] if extra.get("notes") else []),
     ])
     resp = backend.generate(prompt, model=extra.get("model"))
-    parsed = json.loads(resp)
+    parsed = parse_llm_json(resp)  # T17 共享解析：容忍围栏（真实模型常裹 ```json）
     payload = {"locate": locate or {}, "draft": parsed.get("draft", ""),
                "facts": parsed.get("facts", []),
                "appeared": parsed.get("appeared", [])}
@@ -64,5 +65,5 @@ def ai_generate(api, artifact_type: str, locate: dict | None = None,
 
 
 def _default_backend(conn):
-    from ..llm.backend import LitellmBackend
-    return LitellmBackend.for_conn(conn)
+    # 与 api._default_llm 同路径（ports.get_backend）：尊重配置 llm.backend
+    return get_backend(conn)

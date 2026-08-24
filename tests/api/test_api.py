@@ -79,3 +79,32 @@ def test_current_lease_holder_readonly_facade(tmp_path):
         assert api.current_lease_holder() == "holder-a"
     finally:
         api.close()
+
+
+def test_latest_extract_proposal_facade(tmp_path):
+    # 终审修复 F4：壳 writeback result 的"最近抽取提案"领域语义下沉 core 门面
+    api = SnowelAPI.init_project(tmp_path)
+    try:
+        assert api.latest_extract_proposal() is None
+        api.proposals.create("extract_facts", {"facts": []})
+        # 时间戳钉死确保排序确定（Windows 上连续 now 可能同值）
+        api._conn.execute(
+            "UPDATE proposals SET created_ts='2000-01-01T00:00:00+00:00' "
+            "WHERE kind='extract_facts'")
+        api._conn.commit()
+        newer = api.proposals.create("extract_facts", {"facts": []})
+        api._conn.execute(
+            "UPDATE proposals SET created_ts='2001-01-01T00:00:00+00:00' "
+            "WHERE id=?", (newer,))
+        api._conn.commit()
+        # 更晚创建的非抽取提案不参与（kind 过滤在 core）
+        api.proposals.create("premise", {"draft": "x"})
+        api._conn.execute(
+            "UPDATE proposals SET created_ts='2002-01-01T00:00:00+00:00' "
+            "WHERE kind='premise'")
+        api._conn.commit()
+        row = api.latest_extract_proposal()
+        assert row["id"] == newer          # 取 created_ts 最新的 extract_facts
+        assert row["kind"] == "extract_facts"
+    finally:
+        api.close()

@@ -135,10 +135,9 @@ def build_mcp(ctx: ProjectContext, backend=None) -> FastMCP:
                 p["chapter_id"], backend=backend, model=p.get("model"))}
         if action == "result":
             out = {"deviation": ctx.api.deviation(p["chapter_id"])}
-            extracts = [r for r in ctx.api.proposals.list()
-                        if r["kind"] == "extract_facts"]
-            if extracts:
-                out["proposal"] = dict(extracts[-1])  # 最近一次抽取提案
+            latest = ctx.api.latest_extract_proposal()
+            if latest is not None:
+                out["proposal"] = latest  # 最近一次抽取提案（core 门面取最新）
             return {"result": out}
         if action == "list_auto":
             return {"result": ctx.api.list_auto()}

@@ -66,3 +66,26 @@ def test_rewrite_accepts_fenced_response(api):  # T8 同款：真实模型裹围
                                       ensure_ascii=False) + "\n```"
     p2 = api.rewrite_proposal(p1, "更黑暗一点", backend=FakeBackend([fenced]))
     assert json.loads(api.proposals.get(p2)["payload"])["draft"] == "改写稿"
+
+
+def test_rewrite_prose_syncs_content_for_confirm_chain(api):
+    # 终审修复 F1：prose 提案改写后 content 须随 draft 同步——
+    # 确认代写/重登记读 payload["content"]，不同步会落盘改写前旧文（静默错典）
+    gen = FakeBackend([json.dumps({"draft": "旧正文V1", "facts": [],
+                                   "appeared": []}, ensure_ascii=False)])
+    pid = api.ai_generate("prose", locate={"chapter": "ch1"}, backend=gen)
+    rw = FakeBackend([json.dumps({"draft": "改写后正文V2", "facts": [],
+                                  "appeared": []}, ensure_ascii=False)])
+    pid2 = api.rewrite_proposal(pid, "改写", backend=rw)
+    assert json.loads(api.proposals.get(pid2)["payload"])["content"] == "改写后正文V2"
+    api.confirm(pid2)
+    f = api._root / "chapters" / "ch1.md"
+    assert f.read_text(encoding="utf-8") == "改写后正文V2"   # 落盘的是改写稿
+    assert api._conn.execute(
+        "SELECT prose FROM chapter_prose WHERE chapter_id='ch1'"
+    ).fetchone()["prose"] == "改写后正文V2"
+    from snowel_core.writeback import mirror
+    assert mirror.reconcile(api._conn, api._root) == []     # 哈希按新文登记
+    f.unlink()                                             # 模拟崩溃窗口
+    assert api.reregister_prose(pid2) == "ch1"              # 重放同样拿新文
+    assert f.read_text(encoding="utf-8") == "改写后正文V2"

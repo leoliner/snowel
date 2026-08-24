@@ -80,3 +80,9 @@ def test_prose_locate_query_from_scene_card(api):  # 修复波 F2：L9 持久化
     from snowel_core.retrieval import audit
     loc = json.loads(audit.recent(api._conn)[0]["locate"])
     assert loc["query"] == "雨夜追凶 红伞 码头"      # 场景卡 name+required_elements
+
+
+def test_ai_generate_tolerates_fenced_response(api):  # 终审修复 F3：T17 共享解析回填
+    fenced = "```json\n" + _gen_resp(draft="围栏稿") + "\n```"
+    pid = api.ai_generate("premise", backend=FakeBackend([fenced]))
+    assert json.loads(api.proposals.get(pid)["payload"])["draft"] == "围栏稿"

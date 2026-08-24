@@ -190,6 +190,16 @@ class SnowelAPI:
         from .writeback import deviation
         return deviation.report(self._conn, chapter_id)
 
+    def latest_extract_proposal(self) -> dict | None:
+        """最近一条抽取提案（按 created_ts 倒序取首；无则 None）。
+
+        壳 writeback result 一比一映射此门面（铁律 1：领域语义留 core）。
+        """
+        row = self._conn.execute(
+            "SELECT * FROM proposals WHERE kind='extract_facts' "
+            "ORDER BY created_ts DESC LIMIT 1").fetchone()
+        return dict(row) if row is not None else None
+
     # auto 条目事后否决 + 轻量反查（C2/C11）
     def list_auto(self) -> list[dict]:
         from .writeback import review

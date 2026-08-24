@@ -22,3 +22,12 @@ def test_flow_state_layers_and_tree(api):
     assert s["volumes"] == [{"id": "v1", "name": "卷一",
                              "chapters": [{"id": "c1", "name": "第1章"}]}]
     assert api.graph_stats()["active_nodes"] == 2
+
+
+def test_flow_state_scene_kind_satisfies_scenes_layer(api):
+    # 终审修复 F2：层名 "scenes"（复数）vs 提案 kind "scene"（单数）——
+    # 确认 scene 提案后 scenes 层必须置 done，否则永远卡层
+    pid = api.proposals.create("scene", {"facts": []})
+    api.confirm(pid)
+    s = state.flow_state(api._conn)
+    assert s["layers"]["scenes"] == "done"

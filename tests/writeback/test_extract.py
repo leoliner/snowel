@@ -78,9 +78,9 @@ def test_extract_tolerates_fenced_json(api, tmp_path):  # 真实模型常裹 ```
 def test_extract_bad_response_raises_structured(api, tmp_path):
     import pytest
     _prepare(api, tmp_path)
-    with pytest.raises(ValueError, match="合法 JSON"):
+    with pytest.raises(ValueError, match="LLM 响应不是合法 JSON"):
         api.extract_and_writeback("ch1", backend=FakeBackend(["不是 JSON"]))
-    with pytest.raises(ValueError, match="facts"):
+    with pytest.raises(ValueError, match="LLM 响应缺少 facts 键"):
         api.extract_and_writeback("ch1", backend=FakeBackend(['{"appeared": []}']))
 
 

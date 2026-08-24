@@ -56,7 +56,7 @@ def compose_context(conn: sqlite3.Connection, strategy: str,
     sections = []
     if strategy == "prose":
         so = locate.get("story_order", 10 ** 9)
-        scene = _scene_of_chapter(conn, locate.get("chapter"))
+        scene = scene_of_chapter(conn, locate.get("chapter"))
         if scene is not None:
             sections.append(_node_section("scene_card", [scene]))
             chars = _alive(conn, json.loads(scene["props"])
@@ -92,7 +92,8 @@ def compose_context(conn: sqlite3.Connection, strategy: str,
     return bundle
 
 
-def _scene_of_chapter(conn, chapter_id):
+def scene_of_chapter(conn, chapter_id):
+    """章 id → 场景卡节点（prose 策略与 L9 定位共用；无则 None）。"""
     for r in conn.execute("SELECT * FROM nodes WHERE active=1"):
         if "Scene" in r["types"] and json.loads(r["props"]).get("chapter") == chapter_id:
             return r

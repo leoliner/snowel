@@ -21,6 +21,9 @@ def rewrite_proposal(api, proposal_id: str, instruction: str, backend) -> str:
         f"按指示改写以下草稿，返回 JSON（draft/facts/appeared）。\n"
         f"指示：{instruction}\n\n原草稿：{payload.get('draft', '')}")
     parsed = parse_llm_json(resp)  # facts/appeared 仍继承原 payload（控制器裁决）
-    return api.proposals.create(p["kind"], {
-        **payload, "draft": parsed.get("draft", ""),
-        "rewritten_from": proposal_id})
+    new_payload = {**payload, "draft": parsed.get("draft", ""),
+                   "rewritten_from": proposal_id}
+    if p["kind"] == "prose" and "content" in payload:
+        # C1 确认链契约：确认/重登记读 payload["content"]，须随改写稿同步
+        new_payload["content"] = new_payload["draft"]
+    return api.proposals.create(p["kind"], new_payload)

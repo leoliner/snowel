@@ -19,9 +19,9 @@ def parse_llm_json(resp: str) -> dict:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as e:
-        raise ValueError(f"抽取响应不是合法 JSON：{e}") from e
+        raise ValueError(f"LLM 响应不是合法 JSON：{e}") from e
     if "facts" not in parsed:
-        raise ValueError("抽取响应缺少 facts 键")
+        raise ValueError("LLM 响应缺少 facts 键")
     return parsed
 
 
