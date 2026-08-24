@@ -70,6 +70,12 @@ class SnowelAPI:
         from .flow import generate
         return generate.ai_generate(self, artifact_type, locate, extra, backend)
 
+    # 小雪花章级展开（FL-04）：按序产三提案（意图→微节拍组→正文），不自动确认
+    def expand_chapter(self, chapter_id: str, backend,
+                       extra: dict | None = None) -> list[str]:
+        from .flow import snowflake
+        return snowflake.expand_chapter(self, chapter_id, backend, extra)
+
     # 租约（C10）
     def acquire_lease(self, holder: str, stale_after: float = 30.0) -> bool:
         return lease.acquire(self._conn, holder, stale_after)
