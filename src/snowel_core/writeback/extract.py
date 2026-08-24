@@ -85,7 +85,7 @@ def extract_and_writeback(api, chapter_id: str, backend: GenerationBackend,
     proposal_id = None
     if high:
         proposal_id = api.proposals.create("extract_facts", {
-            "chapter_id": chapter_id, "facts": high})
+            "chapter_id": chapter_id, "facts": high, "appeared": appeared})
     auto_seq = None
     if low:
         with transaction(conn):

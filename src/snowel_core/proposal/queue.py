@@ -57,7 +57,7 @@ class ProposalQueue:
         with transaction(self.conn):
             seq = events.append_event(self.conn, "proposal_confirmed", {
                 "proposal_id": proposal_id, "artifact_type": p["kind"],
-                "facts": facts})
+                "facts": facts, "appeared": payload.get("appeared", [])})
             projector.apply(self.conn)
             self.conn.execute(
                 "UPDATE proposals SET status='confirmed' WHERE id=?", (proposal_id,))

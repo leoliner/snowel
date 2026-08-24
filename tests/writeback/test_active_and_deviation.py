@@ -62,3 +62,17 @@ def test_extract_returns_deviation(api, tmp_path):
     resp = json.dumps({"facts": [], "appeared": ["hero"]}, ensure_ascii=False)
     r = api.extract_and_writeback("ch1", backend=FakeBackend([resp]))
     assert "deviation" in r and r["deviation"]["microbeat"] is None
+
+
+def test_all_high_chapter_activates_via_proposal(api, tmp_path):  # 修环 1：全 high 章经提案确认激活（D5 补洞）
+    _profiled_hero(api)
+    mirror.write_prose(api._conn, tmp_path, "ch1", "正文")
+    resp = json.dumps({"facts": [   # 数字事实 → numeric_high 强转 high：无 auto_canonized 事件
+        {"sensitivity": "low", "fact": {
+            "fact": "node", "id": "n-level", "types": ["Mechanism"],
+            "name": "等级", "props": {"core": {"level": 3}}}}],
+        "appeared": ["hero"]}, ensure_ascii=False)
+    r = api.extract_and_writeback("ch1", backend=FakeBackend([resp]))
+    assert r["proposal_id"] is not None and r["auto_event_seq"] is None
+    api.confirm(r["proposal_id"])  # appeared 须随提案载荷穿透到 proposal_confirmed
+    assert api.get_node("hero")["completeness"] == "active"
