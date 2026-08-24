@@ -53,3 +53,7 @@ CREATE TABLE IF NOT EXISTS lease(
   holder       TEXT NOT NULL,
   heartbeat_ts REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS config(
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
