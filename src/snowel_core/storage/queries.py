@@ -74,8 +74,11 @@ def descendants(conn: sqlite3.Connection, node_id: str,
 def graph_stats(conn: sqlite3.Connection) -> dict:
     nodes = conn.execute("SELECT count(*) c FROM nodes").fetchone()["c"]
     edges = conn.execute("SELECT count(*) c FROM edges").fetchone()["c"]
+    active_nodes = conn.execute(
+        "SELECT count(*) c FROM nodes WHERE active=1").fetchone()["c"]
     by_type = {r["type"]: r["n"] for r in conn.execute(
         "SELECT je.value AS type, count(*) AS n "
         "FROM nodes, json_each(nodes.types) je "
         "GROUP BY je.value ORDER BY n DESC")}
-    return {"nodes": nodes, "edges": edges, "nodes_by_type": by_type}
+    return {"nodes": nodes, "edges": edges, "active_nodes": active_nodes,
+            "nodes_by_type": by_type}

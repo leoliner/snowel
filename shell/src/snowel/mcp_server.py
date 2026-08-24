@@ -17,7 +17,6 @@ _NOT_WIRED_PLANNED = {
     "writeback": "阶段三 回写环（writeback 模块 + 正文镜像 D8）",
     "query.search": "阶段三 混合检索（FTS5 / sqlite-vec）",
     "proposal.rewrite": "生成环接线后的提案改写",
-    "flow": "阶段三 flow 模块（雪花流程编排）",
 }
 
 ADVANCED_CATALOG: dict[str, dict] = {
@@ -62,7 +61,7 @@ def build_mcp(ctx: ProjectContext) -> FastMCP:
             "lease_holder": ctx.holder,
             "proposals": counts,
             "graph": ctx.api.graph_stats(),
-            "flow": _not_wired("flow"),
+            "flow": ctx.api.flow_state(),
         }
 
     @mcp.tool()

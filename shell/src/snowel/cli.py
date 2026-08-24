@@ -87,7 +87,9 @@ def status(project: ProjectOpt = None) -> None:
             f"图谱：节点 {stats['nodes']}（" + " / ".join(
                 f"{t} {n}" for t, n in stats["nodes_by_type"].items())
             + f"）· 边 {stats['edges']}")
-        typer.echo("流程：未接线（阶段三 flow 模块）")
+        s = ctx.api.flow_state()
+        done = sum(1 for v in s["layers"].values() if v == "done")
+        typer.echo(f"流程：{s['current_layer'] or '全部完成'}（{done}/7 层完成）")
     finally:
         ctx.close()
 

@@ -69,7 +69,18 @@ async def test_status_reports_graph_and_proposals(project):
         assert d["readonly"] is False
         assert d["proposals"] == {"pending": 1}
         assert d["graph"]["nodes"] == 0
-        _assert_not_wired(d["flow"], "flow")
+        assert d["flow"]["layers"]
+
+
+async def test_status_reports_flow(project):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("premise", {"draft": "x"})
+    api.proposals.confirm(pid)
+    api.close()
+    async with _connected(project) as (ctx, client):
+        d = await _call(client, "snowel_status", {})
+        assert d["flow"]["layers"]["premise"] == "done"
+        assert d["flow"]["current_layer"] == "synopsis"
 
 
 async def test_proposal_end_to_end(project):

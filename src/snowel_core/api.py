@@ -59,6 +59,11 @@ class SnowelAPI:
     def backup(self, out_path) -> None:
         db.backup(self._conn, out_path)
 
+    # 流程状态（FL-03）
+    def flow_state(self) -> dict:
+        from .flow import state
+        return state.flow_state(self._conn)
+
     # 租约（C10）
     def acquire_lease(self, holder: str, stale_after: float = 30.0) -> bool:
         return lease.acquire(self._conn, holder, stale_after)

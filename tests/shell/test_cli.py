@@ -44,6 +44,7 @@ def test_status_reports_counts(tmp_path):
     assert "confirmed 1" in res.output
     assert "节点 1" in res.output
     assert "Character 1" in res.output
+    assert "流程" in res.output
 
 
 def test_backup_roundtrip_and_overwrite_guard(tmp_path):
