@@ -1,4 +1,6 @@
 # src/snowel_core/proposal/queue.py
+from __future__ import annotations  # 类体 list 方法遮蔽内建，注解需惰性求值
+
 import json
 import sqlite3
 import uuid
@@ -20,12 +22,12 @@ class ProposalQueue:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
 
-    def _get(self, pid) -> sqlite3.Row:
+    def get(self, pid) -> sqlite3.Row:
         return self.conn.execute(
             "SELECT * FROM proposals WHERE id=?", (pid,)).fetchone()
 
     def _transition(self, pid, new: str) -> None:
-        old = self._get(pid)["status"]
+        old = self.get(pid)["status"]
         if (old, new) not in _ALLOWED:
             raise ProposalStateError(f"非法迁移 {old} -> {new}")
 
@@ -45,14 +47,17 @@ class ProposalQueue:
         return self.conn.execute(
             "SELECT * FROM proposals ORDER BY created_ts").fetchall()
 
-    def confirm(self, proposal_id: str) -> int:
+    def confirm(self, proposal_id: str, exclude: list[str] | None = None) -> int:
         self._transition(proposal_id, "confirmed")
-        p = self._get(proposal_id)
+        p = self.get(proposal_id)
         payload = json.loads(p["payload"])
+        facts = payload.get("facts", [])
+        if exclude:                     # TC-PR-09：整组确认可剔除
+            facts = [f for f in facts if f.get("id") not in set(exclude)]
         with transaction(self.conn):
             seq = events.append_event(self.conn, "proposal_confirmed", {
                 "proposal_id": proposal_id, "artifact_type": p["kind"],
-                "facts": payload["facts"]})
+                "facts": facts, "appeared": payload.get("appeared", [])})
             projector.apply(self.conn)
             self.conn.execute(
                 "UPDATE proposals SET status='confirmed' WHERE id=?", (proposal_id,))

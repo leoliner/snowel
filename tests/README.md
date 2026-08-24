@@ -16,6 +16,9 @@
 | `proposal/test_proposal.py` | `proposal/queue.py`（提案状态机） | TC-PR-01~07、TC-EV-07/08 |
 | `api/test_api.py` | `api.py`（门面端到端） | 冒烟：init→create→confirm→query→rebuild |
 | `shell/`（test_project / test_mcp_server / test_cli / test_lease_integration） | 壳包 `snowel`（project.py/cli.py/mcp_server.py） | TC-SH-01/02/04/05/06、TC-SH-03 子集、TC-SH-07（status/backup；export 豁免） |
+| `llm/`（test_backend / test_embed） | `llm/`（backend 协议/litellm 适配、embed provider 接口） | TC-RT-05（小模型路由面） |
+| `retrieval/test_context.py` | `retrieval/`（compose_context/审计/hybrid） | TC-RT-01/02/03、TC-ON-02（FTS 面） |
+| `writeback/`（test_mirror / test_confirm_prose / test_extract / test_hook / test_active_and_deviation / test_review） | `writeback/`（镜像对账/确认即写/抽取分级/hook/active+偏离/auto 否决） | TC-WB-01~08、TC-PR-10、TC-ON-05/06、TC-FL-05 |
 
 ## 2. 运行
 
@@ -29,5 +32,5 @@ pytest tests/storage      # 单模块
 ## 3. 约定
 
 - 新模块落地时在此建同名子目录，README §1 同步登记一行（含覆盖用例反向索引）。
-- 模块间共享 fixture 写 `conftest.py`（目前为空占位）；跨目录共用的放根级。
-- LLM 依赖的模块（llm/retrieval/writeback/flow，后续计划）测试一律注入确定性生成端，不发真实请求。
+- 模块间共享 fixture 写 `conftest.py`（目前提供 `core_conn`/`api` 真库 fixture 与 `FakeBackend` 确定性生成端）；跨目录共用的放根级。
+- LLM 依赖的模块（llm/retrieval/writeback/flow）测试一律注入确定性生成端（`FakeBackend`/`DeterministicEmbed`），不发真实请求。

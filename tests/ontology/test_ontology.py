@@ -25,3 +25,17 @@ def test_derive_completeness():
     assert not completeness.is_core_complete({"motivation": "x"})
     assert completeness.is_core_complete(
         {"motivation": "x", "lie": "y", "fear": "z", "arc": "w"})
+
+def test_validate_malformed_schema_version_degrades():  # L1：D3 降级精神
+    status, warn = groups.validate("core", {
+        "_schema": "demo@x",  # 畸形版本串
+        "motivation": "m", "lie": "l", "fear": "f", "arc": "a"})
+    assert status == "version_mismatch"
+    assert warn and "demo@x" in warn
+
+def test_derive_signature_frozen():  # L2：以实现为准 derive(props)
+    from snowel_core.ontology.completeness import derive
+    assert derive({}) == "draft"
+    assert derive({"core": {"motivation": "a", "lie": "b",
+                            "fear": "c", "arc": "d"}}) == "profiled"
+    assert derive({"core": {"motivation": "a"}}) == "draft"

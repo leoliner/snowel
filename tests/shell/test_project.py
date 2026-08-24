@@ -70,3 +70,22 @@ def test_heartbeat_keeps_lease_alive(project):
     finally:
         b.close()
     a.close()
+
+
+def test_lease_lost_flips_readonly(tmp_path):
+    # L5：心跳失租后 readonly 必须翻转，require_write 拒绝
+    from snowel import project as P
+    from snowel_core.api import SnowelAPI
+    SnowelAPI.init_project(tmp_path)
+    ctx = P.open_project(tmp_path, stale_after=0.2, heartbeat=True)
+    assert not ctx.readonly
+    # 模拟持租进程僵死：把心跳戳拨回过去，他端抢租
+    other = SnowelAPI.open(tmp_path)
+    other._conn.execute("UPDATE lease SET heartbeat_ts=0")
+    assert other.acquire_lease("rival@x:1", stale_after=0.2)
+    other.close()
+    import time; time.sleep(0.5)  # 等心跳线程 renew 失败（interval≈0.067s）
+    assert ctx.readonly
+    with pytest.raises(P.ProjectError):
+        ctx.require_write()
+    ctx.close()

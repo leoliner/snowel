@@ -1,30 +1,35 @@
 # src/snowel_core/api.py
+import json
 from pathlib import Path
 
 from .proposal.queue import ProposalQueue
-from .storage import db, lease, queries
+from .storage import db, lease, queries, vec
 from .storage.projector import rebuild as _rebuild
 
 class ProjectNotFoundError(Exception):
     """open() 目标目录缺少 snowel.db（L3：不静默新建空库）"""
 
 class SnowelAPI:
-    def __init__(self, conn):
+    def __init__(self, conn, root: Path | None = None):
         self._conn = conn
+        self._root = root          # 项目根（写文件 IO 用，C1）
         self.proposals = ProposalQueue(conn)
 
     @classmethod
     def init_project(cls, path) -> "SnowelAPI":
         p = Path(path); p.mkdir(parents=True, exist_ok=True)
-        conn = db.connect(p / "snowel.db"); db.migrate(conn)
-        return cls(conn)
+        conn = db.connect(p / "snowel.db"); db.migrate(conn); vec.ensure(conn)
+        return cls(conn, root=p)
 
     @classmethod
     def open(cls, path) -> "SnowelAPI":
         db_path = Path(path) / "snowel.db"
         if not db_path.exists():
             raise ProjectNotFoundError(f"未找到项目库：{db_path}")
-        return cls(db.connect(db_path))
+        conn = db.connect(db_path)
+        db.migrate(conn)  # 旧库补新表（schema 全 IF NOT EXISTS，幂等）；apply 尾部 fts.refresh 依赖新表
+        vec.ensure(conn)
+        return cls(conn, root=Path(path))
 
     def close(self):
         self._conn.close()
@@ -63,3 +68,42 @@ class SnowelAPI:
 
     def release_lease(self, holder: str) -> None:
         lease.release(self._conn, holder)
+
+    # 确认即写文件编排（C1）
+    def confirm(self, proposal_id: str, exclude: list[str] | None = None) -> int:
+        """统一确认入口：正文类提案确认即代写文件并登记哈希（C1）。"""
+        p = self.proposals.get(proposal_id)
+        seq = self.proposals.confirm(proposal_id, exclude=exclude)
+        if p["kind"] == "prose":
+            payload = json.loads(p["payload"])
+            from .writeback import mirror
+            mirror.write_prose(self._conn, self._root,
+                               payload["chapter_id"], payload["content"])
+        return seq
+
+    # 抽取回写（铁律 1：三端唯一入口，口签名住 llm/ports.py）
+    def extract_and_writeback(self, chapter_id: str, backend, model=None):
+        from .llm.ports import extract_and_writeback as _port
+        return _port(self, chapter_id, backend, model=model)
+
+    # 对账/手动抽取门面（§3.3，P4 三模式通用）
+    def reconcile_prose(self) -> list:
+        from .writeback import mirror
+        return mirror.reconcile(self._conn, self._root)
+
+    def trigger_extract(self, chapter_id: str, backend, model=None):
+        return self.extract_and_writeback(chapter_id, backend, model=model)
+
+    def deviation(self, chapter_id: str) -> dict:
+        from .writeback import deviation
+        return deviation.report(self._conn, chapter_id)
+
+    # auto 条目事后否决 + 轻量反查（C2/C11）
+    def list_auto(self) -> list[dict]:
+        from .writeback import review
+        return review.list_auto(self._conn)
+
+    def reject_auto(self, entries: list[tuple[str, str]],
+                    reason: str | None = None) -> dict:
+        from .writeback import review
+        return review.reject_auto(self._conn, entries, reason=reason)
