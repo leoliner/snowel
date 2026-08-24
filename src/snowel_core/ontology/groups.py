@@ -17,7 +17,11 @@ def validate(group_name: str, data: dict):
     schema, cur = _registered[group_name]
     declared = None
     if isinstance(data.get("_schema"), str) and "@" in data["_schema"]:
-        declared = int(data["_schema"].split("@")[1])
+        try:
+            declared = int(data["_schema"].split("@")[1])
+        except ValueError:  # L1：畸形版本串按版本不匹配降级警告，不阻断（D3）
+            return "version_mismatch", (
+                f"组 {group_name} 版本串畸形: {data['_schema']!r}")
     try:
         schema.model_validate(data)
     except ValidationError as e:

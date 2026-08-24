@@ -55,7 +55,8 @@ class ProjectContext:
             try:
                 while not self._stop.wait(interval):
                     if not api2.renew_lease(self.holder):
-                        break  # 租约已被他端夺走，停止续期
+                        self.readonly = True  # L5：失租即翻只读，关死双写窗口
+                        break
             finally:
                 api2.close()
 
