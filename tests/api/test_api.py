@@ -46,3 +46,36 @@ def test_backup_refuses_overwrite(tmp_path):
     with pytest.raises(FileExistsError):
         api.backup(out)
     api.close()
+
+
+def test_search_and_audit_recent_facades(tmp_path):
+    api = SnowelAPI.init_project(tmp_path)
+    try:
+        assert api.search("林晚") == {"nodes": [], "paragraphs": []}
+        assert api.audit_recent() == []  # 空 audit 表（Task 18 门面接线）
+    finally:
+        api.close()
+
+
+def test_export_prose_ordered_from_mirror(tmp_path):
+    api = SnowelAPI.init_project(tmp_path)
+    try:
+        for cid, text in (("ch2", "第二章。"), ("ch1", "第一章。")):
+            pid = api.proposals.create("prose", {
+                "chapter_id": cid, "content": text})
+            api.confirm(pid)
+        rows = api.export_prose()
+        assert rows == [{"chapter_id": "ch1", "prose": "第一章。"},
+                        {"chapter_id": "ch2", "prose": "第二章。"}]  # 按 chapter_id 排序
+    finally:
+        api.close()
+
+
+def test_current_lease_holder_readonly_facade(tmp_path):
+    api = SnowelAPI.init_project(tmp_path)
+    try:
+        assert api.current_lease_holder() is None
+        assert api.acquire_lease("holder-a")
+        assert api.current_lease_holder() == "holder-a"
+    finally:
+        api.close()

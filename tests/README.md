@@ -15,10 +15,11 @@
 | `ontology/test_ontology.py` | `ontology/`（属性组注册表/completeness） | TC-ON-03/04/05（推导面） |
 | `proposal/test_proposal.py` | `proposal/queue.py`（提案状态机） | TC-PR-01~07、TC-EV-07/08 |
 | `api/test_api.py` | `api.py`（门面端到端） | 冒烟：init→create→confirm→query→rebuild |
-| `shell/`（test_project / test_mcp_server / test_cli / test_lease_integration） | 壳包 `snowel`（project.py/cli.py/mcp_server.py） | TC-SH-01/02/04/05/06、TC-SH-03 子集、TC-SH-07（status/backup；export 豁免） |
+| `shell/`（test_project / test_mcp_server / test_cli / test_lease_integration） | 壳包 `snowel`（project.py/cli.py/mcp_server.py） | TC-SH-01/02/04/05/06、TC-SH-03 子集、TC-SH-07（status/backup/export） |
 | `llm/`（test_backend / test_embed） | `llm/`（backend 协议/litellm 适配、embed provider 接口） | TC-RT-05（小模型路由面） |
 | `retrieval/test_context.py` | `retrieval/`（compose_context/审计/hybrid） | TC-RT-01/02/03、TC-ON-02（FTS 面） |
 | `writeback/`（test_mirror / test_confirm_prose / test_extract / test_hook / test_active_and_deviation / test_review） | `writeback/`（镜像对账/确认即写/抽取分级/hook/active+偏离/auto 否决） | TC-WB-01~08、TC-PR-10、TC-ON-05/06、TC-FL-05 |
+| `flow/`（test_generate / test_snowflake / test_state / test_revision / test_volume） | `flow/`（生成环路由/小雪花展开/流程状态/统一 revision/卷级重放） | TC-FL-01~04/06、TC-PR-02/08/09、TC-RT-04 |
 
 ## 2. 运行
 

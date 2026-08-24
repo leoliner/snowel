@@ -68,13 +68,39 @@ def test_backup_roundtrip_and_overwrite_guard(tmp_path):
     api2.close()
 
 
-def test_export_seal_not_wired_exit_2(tmp_path):
+def test_export_writes_all_chapters(tmp_path):
     SnowelAPI.init_project(tmp_path)
-    for cmd in (["export", "--project", str(tmp_path)],
-                ["seal", "--project", str(tmp_path)]):
-        res = runner.invoke(app, cmd)
-        assert res.exit_code == 2
-        assert "未接线" in res.output
+    api = SnowelAPI.open(tmp_path)
+    pid = api.proposals.create("prose", {"chapter_id": "ch1",
+                                         "content": "第一章：雨夜。"})
+    api.confirm(pid)
+    api.close()
+    out = tmp_path / "export"
+    res = runner.invoke(app, ["export", "--project", str(tmp_path),
+                              "--out", str(out)])
+    assert res.exit_code == 0
+    assert (out / "ch1.md").read_text(encoding="utf-8") == "第一章：雨夜。"
+
+
+def test_export_txt_format(tmp_path):
+    SnowelAPI.init_project(tmp_path)
+    api = SnowelAPI.open(tmp_path)
+    pid = api.proposals.create("prose", {"chapter_id": "ch1",
+                                         "content": "正文"})
+    api.confirm(pid)
+    api.close()
+    out = tmp_path / "export"
+    res = runner.invoke(app, ["export", "--project", str(tmp_path),
+                              "--out", str(out), "--format", "txt"])
+    assert res.exit_code == 0
+    assert (out / "ch1.txt").read_text(encoding="utf-8") == "正文"
+
+
+def test_seal_still_not_wired(tmp_path):
+    SnowelAPI.init_project(tmp_path)
+    res = runner.invoke(app, ["seal", "--project", str(tmp_path)])
+    assert res.exit_code == 2
+    assert "未接线" in res.output
 
 
 def test_project_option_overrides_cwd(tmp_path, monkeypatch):

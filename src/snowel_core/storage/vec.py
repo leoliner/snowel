@@ -44,13 +44,15 @@ def rebuild_embeddings(conn: sqlite3.Connection, provider=None) -> dict:  # P2�
              for i, t in enumerate(r["prose"].split("\n\n")) if t.strip()]
     vecs_n = p.embed([_node_text(r) for r in nodes])
     vecs_p = p.embed([t for _, _, t in paras])
-    conn.execute("DELETE FROM node_vec"); conn.execute("DELETE FROM prose_vec")
-    conn.executemany("INSERT INTO node_vec(node_id, embedding) VALUES(?,?)",
-                     [(r["id"], json.dumps(v)) for r, v in zip(nodes, vecs_n)])
-    conn.executemany(
-        "INSERT INTO prose_vec(chapter_id, para_idx, embedding) VALUES(?,?,?)",
-        [(c, i, json.dumps(v)) for (c, i, _), v in zip(paras, vecs_p)])
-    config.set(conn, "embedding.built_with", p.name())
+    from .db import transaction  # L8：清旧+灌新+登记 built_with 同事务，失败整体回滚
+    with transaction(conn):
+        conn.execute("DELETE FROM node_vec"); conn.execute("DELETE FROM prose_vec")
+        conn.executemany("INSERT INTO node_vec(node_id, embedding) VALUES(?,?)",
+                         [(r["id"], json.dumps(v)) for r, v in zip(nodes, vecs_n)])
+        conn.executemany(
+            "INSERT INTO prose_vec(chapter_id, para_idx, embedding) VALUES(?,?,?)",
+            [(c, i, json.dumps(v)) for (c, i, _), v in zip(paras, vecs_p)])
+        config.set(conn, "embedding.built_with", p.name())
     return {"provider": p.name(), "nodes": len(nodes), "paragraphs": len(paras)}
 
 

@@ -61,6 +61,16 @@ def test_fts_searchable_immediately_after_reconcile(core_conn, tmp_path):
     assert r2["paragraphs"] and r2["paragraphs"][0]["chapter_id"] == "chR"
 
 
+def test_fts_paragraphs_return_raw_text(core_conn, tmp_path):
+    # L10：检索命中段返回原文（含标点），非分词空格串
+    from snowel_core.writeback import mirror
+    mirror.write_prose(core_conn, tmp_path, "chP",
+                       "她说：'灯塔、钥匙，亮了。'\n\n第二段旁白")
+    r = fts.search(core_conn, "钥匙")
+    assert r["paragraphs"][0]["chapter_id"] == "chP"
+    assert r["paragraphs"][0]["text"] == "她说：'灯塔、钥匙，亮了。'"
+
+
 def test_fts_retraction_removes_hit(core_conn):
     _confirm(core_conn, [{"fact": "node", "id": "n1", "types": ["Concept"],
                           "name": "临时设定", "props": {}}])

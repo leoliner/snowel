@@ -68,6 +68,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
   node_id UNINDEXED, text);
 CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
   chapter_id UNINDEXED, para_idx UNINDEXED, text);
+CREATE TABLE IF NOT EXISTS prose_paragraph(
+  -- L10：段落原文侧表——prose_fts 存分词串（MATCH 需要），原文从此表取
+  chapter_id TEXT NOT NULL,
+  para_idx   INTEGER NOT NULL,
+  text       TEXT NOT NULL,
+  PRIMARY KEY(chapter_id, para_idx)
+);
 CREATE TABLE IF NOT EXISTS retrieval_audit(
   id       INTEGER PRIMARY KEY AUTOINCREMENT,
   ts       TEXT NOT NULL,

@@ -89,3 +89,18 @@ def test_lease_lost_flips_readonly(tmp_path):
     with pytest.raises(P.ProjectError):
         ctx.require_write()
     ctx.close()
+
+
+def test_heartbeat_renew_exception_flips_readonly(project, monkeypatch):
+    # L7：renew 抛异常（库文件锁等）按失租处理，readonly 翻转关死双写窗口
+    def _raise(self, holder):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(SnowelAPI, "renew_lease", _raise)
+    ctx = open_project(project, stale_after=0.3, heartbeat=True)
+    try:
+        time.sleep(0.5)  # interval≈0.1s：多个续租周期均异常
+        assert ctx.readonly
+        with pytest.raises(ProjectError):
+            ctx.require_write()
+    finally:
+        ctx.close()

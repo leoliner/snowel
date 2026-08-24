@@ -9,6 +9,12 @@ from .storage.projector import rebuild as _rebuild
 class ProjectNotFoundError(Exception):
     """open() 目标目录缺少 snowel.db（L3：不静默新建空库）"""
 
+
+def _default_llm(conn):
+    """backend 未注入时的生产缺省（配置驱动，默认 litellm）。"""
+    from .llm.ports import get_backend
+    return get_backend(conn)
+
 class SnowelAPI:
     def __init__(self, conn, root: Path | None = None):
         self._conn = conn
@@ -59,6 +65,21 @@ class SnowelAPI:
     def backup(self, out_path) -> None:
         db.backup(self._conn, out_path)
 
+    # 混合检索（Task 5/6）：壳一比一映射的只读门面
+    def search(self, q: str, mode: str = "hybrid", limit: int = 20) -> dict:
+        from .retrieval import hybrid
+        return hybrid.search(self._conn, q, limit, mode)
+
+    # 检索上下文审计（Task 6：TC-RT-02 排查面）
+    def audit_recent(self, limit: int = 50) -> list[dict]:
+        from .retrieval import audit
+        return audit.recent(self._conn, limit)
+
+    # 正文镜像导出（D8：CLI export 数据面，按章排序）
+    def export_prose(self) -> list[dict]:
+        return [dict(r) for r in self._conn.execute(
+            "SELECT chapter_id, prose FROM chapter_prose ORDER BY chapter_id")]
+
     # 流程状态（FL-03）
     def flow_state(self) -> dict:
         from .flow import state
@@ -94,8 +115,10 @@ class SnowelAPI:
         return revision.propose_revision(self, node_id, new_address, reason)
 
     # 提案改写（D7 rewrite）：新提案标 rewritten_from，原提案留队不动
-    def rewrite_proposal(self, proposal_id: str, instruction: str, backend) -> str:
+    def rewrite_proposal(self, proposal_id: str, instruction: str,
+                         backend=None) -> str:
         from .flow import revision
+        backend = backend or _default_llm(self._conn)
         return revision.rewrite_proposal(self, proposal_id, instruction, backend)
 
     # 租约（C10）
@@ -107,6 +130,12 @@ class SnowelAPI:
 
     def release_lease(self, holder: str) -> None:
         lease.release(self._conn, holder)
+
+    def current_lease_holder(self) -> str | None:
+        """只读门面：查当前写租约持有者（无租约或已释放则 None）。"""
+        row = self._conn.execute(
+            "SELECT holder FROM lease WHERE id=1").fetchone()
+        return row["holder"] if row else None
 
     # 确认即写文件编排（C1）
     def confirm(self, proposal_id: str, exclude: list[str] | None = None) -> int:
@@ -131,6 +160,18 @@ class SnowelAPI:
                     f"上游 revision：{payload.get('node_id', '')} 结构变更")
         return seq
 
+    # 崩溃窗口恢复（L6）：按已确认 prose 提案重放"确认即代写"
+    def reregister_prose(self, proposal_id: str) -> str:
+        p = self.proposals.get(proposal_id)
+        if p is None or p["kind"] != "prose" or p["status"] != "confirmed":
+            raise ValueError(
+                f"提案 {proposal_id} 不是已确认（confirmed）的 prose 提案，无法重登记")
+        payload = json.loads(p["payload"])
+        from .writeback import mirror
+        mirror.write_prose(self._conn, self._root,
+                           payload["chapter_id"], payload["content"])
+        return payload["chapter_id"]
+
     # 抽取回写（铁律 1：三端唯一入口，口签名住 llm/ports.py）
     def extract_and_writeback(self, chapter_id: str, backend, model=None):
         from .llm.ports import extract_and_writeback as _port
@@ -141,7 +182,8 @@ class SnowelAPI:
         from .writeback import mirror
         return mirror.reconcile(self._conn, self._root)
 
-    def trigger_extract(self, chapter_id: str, backend, model=None):
+    def trigger_extract(self, chapter_id: str, backend=None, model=None):
+        backend = backend or _default_llm(self._conn)
         return self.extract_and_writeback(chapter_id, backend, model=model)
 
     def deviation(self, chapter_id: str) -> dict:
