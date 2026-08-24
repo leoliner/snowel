@@ -69,3 +69,13 @@ def descendants(conn: sqlite3.Connection, node_id: str,
         SELECT DISTINCT n.* FROM walk JOIN nodes n ON n.id = walk.id
         WHERE n.active=1 AND n.id != ?
     """, (node_id, max_depth, node_id)).fetchall()
+
+
+def graph_stats(conn: sqlite3.Connection) -> dict:
+    nodes = conn.execute("SELECT count(*) c FROM nodes").fetchone()["c"]
+    edges = conn.execute("SELECT count(*) c FROM edges").fetchone()["c"]
+    by_type = {r["type"]: r["n"] for r in conn.execute(
+        "SELECT je.value AS type, count(*) AS n "
+        "FROM nodes, json_each(nodes.types) je "
+        "GROUP BY je.value ORDER BY n DESC")}
+    return {"nodes": nodes, "edges": edges, "nodes_by_type": by_type}

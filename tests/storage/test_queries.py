@@ -92,3 +92,22 @@ def test_state_at_uses_current_effective_version(tmp_path):  # C9 修正后视�
     projector.apply(conn)
     s = queries.state_at(conn, 0)
     assert s["nodes"][0]["core_level"] == 9             # 取当前生效版，不是历史原版
+
+
+FACTS = [{"fact": "node", "id": "n1", "types": ["Character"],
+          "name": "林晚", "props": {}}]
+
+
+def test_graph_stats_counts_and_types(tmp_path):
+    # 本文件无 conn fixture，沿用 _mk(tmp_path) 建库（断言与 brief 一致）
+    conn = _mk(tmp_path)
+    from snowel_core.storage import db, events, projector
+    from snowel_core.storage.queries import graph_stats
+    with db.transaction(conn):
+        events.append_event(conn, "proposal_confirmed",
+                            {"facts": FACTS})
+        projector.apply(conn)
+    stats = graph_stats(conn)
+    assert stats["nodes"] == 1
+    assert stats["edges"] == 0
+    assert stats["nodes_by_type"] == {"Character": 1}

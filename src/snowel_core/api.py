@@ -45,8 +45,14 @@ class SnowelAPI:
     def descendants(self, node_id, kinds=None, max_depth=10):
         return queries.descendants(self._conn, node_id, kinds, max_depth)
 
+    def graph_stats(self) -> dict:
+        return queries.graph_stats(self._conn)
+
     def rebuild(self):
         _rebuild(self._conn)
+
+    def backup(self, out_path) -> None:
+        db.backup(self._conn, out_path)
 
     # 租约（C10）
     def acquire_lease(self, holder: str, stale_after: float = 30.0) -> bool:
