@@ -29,8 +29,11 @@ class HookScheduler:
         out = []
         for ch in mirror.reconcile(self.api._conn, self.api._root):
             if ch["status"] == "external_change" and self.mode in ("auto", "timer"):
-                ch["extract"] = self.api.extract_and_writeback(
-                    ch["chapter_id"], backend=self.backend)
+                try:
+                    ch["extract"] = self.api.extract_and_writeback(
+                        ch["chapter_id"], backend=self.backend)
+                except Exception as e:  # 单章毒化不杀轮询线程：记错误继续余章
+                    ch["extract_error"] = str(e)
             out.append(ch)
         return out
 

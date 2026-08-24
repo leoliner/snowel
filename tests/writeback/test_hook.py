@@ -46,3 +46,21 @@ def test_scheduler_from_config(api):
     config.set(api._conn, "hook.mode", "auto")
     sch = hook.HookScheduler.from_config(api, FakeBackend([]))
     assert sch.mode == "auto"
+
+
+def test_tick_survives_poisoned_extract(api, tmp_path):  # 修环 1：单章抽取失败不杀 tick
+    class BoomBackend(FakeBackend):
+        def generate(self, prompt, *, model=None, system=None):
+            self.calls.append({"prompt": prompt, "model": model, "system": system})
+            raise RuntimeError("backend down")
+
+    _write_chapter(api, tmp_path)
+    (tmp_path / "chapters" / "ch1.md").write_text("毒章正文", encoding="utf-8")
+    sch = hook.HookScheduler(api, BoomBackend([]), mode="auto", interval=1.0)
+    results = sch.tick()                             # 异常不得逃出 tick
+    assert results == [{"chapter_id": "ch1", "status": "external_change",
+                        "extract_error": "backend down"}]
+    (tmp_path / "chapters" / "ch1.md").write_text("再改一次", encoding="utf-8")
+    results2 = sch.tick()                            # 第二轮仍活：线程未死语义
+    assert results2 == [{"chapter_id": "ch1", "status": "external_change",
+                         "extract_error": "backend down"}]
