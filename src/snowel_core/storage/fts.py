@@ -28,13 +28,18 @@ def refresh(conn: sqlite3.Connection) -> None:  # P2：FTS 便宜，apply 内全
     conn.executemany("INSERT INTO node_fts(node_id, text) VALUES(?,?)", data)
 
     conn.execute("DELETE FROM prose_fts")
-    paras = []
+    conn.execute("DELETE FROM prose_paragraph")
+    paras, raws = [], []
     for r in conn.execute("SELECT chapter_id, prose FROM chapter_prose"):
         for i, para in enumerate(r["prose"].split("\n\n")):
             if para.strip():
                 paras.append((r["chapter_id"], i, tokenize(para)))
+                raws.append((r["chapter_id"], i, para))  # L10：原文留侧表
     conn.executemany(
         "INSERT INTO prose_fts(chapter_id, para_idx, text) VALUES(?,?,?)", paras)
+    conn.executemany(
+        "INSERT INTO prose_paragraph(chapter_id, para_idx, text) "
+        "VALUES(?,?,?)", raws)
 
 
 def _query_expr(q: str) -> str:
@@ -51,7 +56,11 @@ def search(conn: sqlite3.Connection, q: str, limit: int = 20) -> dict:
              for r in conn.execute(
                  "SELECT node_id FROM node_fts WHERE node_fts MATCH ? LIMIT ?",
                  (expr, limit))]
-    paras = [dict(r) for r in conn.execute(
-        "SELECT chapter_id, para_idx, text FROM prose_fts "
-        "WHERE prose_fts MATCH ? LIMIT ?", (expr, limit))]
+    paras = [{"chapter_id": r["chapter_id"], "para_idx": r["para_idx"],
+              "text": r["text"]}
+             for r in conn.execute(
+                 "SELECT f.chapter_id, f.para_idx, p.text FROM prose_fts f "
+                 "JOIN prose_paragraph p ON p.chapter_id=f.chapter_id "
+                 "AND p.para_idx=f.para_idx "
+                 "WHERE prose_fts MATCH ? LIMIT ?", (expr, limit))]
     return {"nodes": nodes, "paragraphs": paras}

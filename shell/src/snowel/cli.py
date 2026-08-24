@@ -23,7 +23,6 @@ ProjectOpt = Annotated[
 _project: Optional[Path] = None
 
 PLANNED_IN = {
-    "export": "阶段三 回写环（章节正文镜像，D8）",
     "seal": "级联检查计划（volume_sealed 事件）",
 }
 
@@ -87,7 +86,9 @@ def status(project: ProjectOpt = None) -> None:
             f"图谱：节点 {stats['nodes']}（" + " / ".join(
                 f"{t} {n}" for t, n in stats["nodes_by_type"].items())
             + f"）· 边 {stats['edges']}")
-        typer.echo("流程：未接线（阶段三 flow 模块）")
+        s = ctx.api.flow_state()
+        done = sum(1 for v in s["layers"].values() if v == "done")
+        typer.echo(f"流程：{s['current_layer'] or '全部完成'}（{done}/7 层完成）")
     finally:
         ctx.close()
 
@@ -116,9 +117,23 @@ def backup(
 
 
 @app.command()
-def export(project: ProjectOpt = None) -> None:
-    """导出项目（Markdown/txt）——未接线。"""
-    _not_wired("export")
+def export(project: ProjectOpt = None,
+           out: Annotated[Optional[Path], typer.Option(
+               "--out", "-o", help="导出目录（默认项目目录下 export/）")] = None,
+           fmt: Annotated[str, typer.Option(
+               "--format", "-f", help="md | txt")] = "md") -> None:
+    """导出全部章节正文（从库内镜像，D8）。"""
+    ctx = _open_or_exit(project, want_write=False)
+    try:
+        out = out or ctx.project_path / "export"
+        out.mkdir(parents=True, exist_ok=True)
+        rows = ctx.api.export_prose()
+        for r in rows:
+            f = out / f"{r['chapter_id']}.{fmt}"
+            f.write_text(r["prose"], encoding="utf-8")
+        typer.echo(f"已导出 {len(rows)} 章至 {out}")
+    finally:
+        ctx.close()
 
 
 @app.command()

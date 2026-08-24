@@ -61,3 +61,26 @@ def test_confirm_exclude_filters_facts(api):  # TC-PR-09：整组确认可剔除
         "SELECT payload FROM events WHERE kind='proposal_confirmed'").fetchone()
     ids = [f["id"] for f in json.loads(ev["payload"])["facts"]]
     assert ids == ["sc-b"]  # 事件审计流也只携带保留事实
+
+
+def test_reregister_prose_restores_crash_window(api, tmp_path):  # L6
+    pid = api.proposals.create("prose", {
+        "chapter_id": "ch1", "content": "第一章：雨夜。"})
+    api.confirm(pid)
+    f = tmp_path / "chapters" / "ch1.md"
+    f.unlink()  # 模拟确认后镜像/文件失登（崩溃窗口）
+    assert api.reregister_prose(pid) == "ch1"
+    assert f.read_text(encoding="utf-8") == "第一章：雨夜。"
+    assert api._conn.execute(
+        "SELECT prose FROM chapter_prose WHERE chapter_id='ch1'"
+    ).fetchone()["prose"] == "第一章：雨夜。"
+
+
+def test_reregister_rejects_wrong_kind_or_status(api):
+    pending = api.proposals.create("prose", {"chapter_id": "ch2", "content": "x"})
+    with pytest.raises(ValueError, match="confirmed"):
+        api.reregister_prose(pending)  # 未确认：不允许重放
+    scene = api.proposals.create("scene", {"facts": []})
+    api.confirm(scene)
+    with pytest.raises(ValueError, match="prose"):
+        api.reregister_prose(scene)    # 非 prose 提案

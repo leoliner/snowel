@@ -54,7 +54,11 @@ class ProjectContext:
                 return
             try:
                 while not self._stop.wait(interval):
-                    if not api2.renew_lease(self.holder):
+                    try:
+                        ok = api2.renew_lease(self.holder)
+                    except Exception:
+                        ok = False  # L7：renew 异常（库文件锁等）按失租处理，不给异常续命
+                    if not ok:
                         self.readonly = True  # L5：失租即翻只读，关死双写窗口
                         break
             finally:

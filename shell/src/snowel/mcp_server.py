@@ -12,13 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from .project import (ProjectContext, ProjectError, open_project,
                       resolve_project_path)
 
-_NOT_WIRED_PLANNED = {
-    "generate": "阶段三 生成环（llm/flow/retrieval，E3 三口）",
-    "writeback": "阶段三 回写环（writeback 模块 + 正文镜像 D8）",
-    "query.search": "阶段三 混合检索（FTS5 / sqlite-vec）",
-    "proposal.rewrite": "生成环接线后的提案改写",
-    "flow": "阶段三 flow 模块（雪花流程编排）",
-}
+_NOT_WIRED_PLANNED: dict[str, str] = {}  # 阶段三接线完毕；新能力先登记再实现
 
 ADVANCED_CATALOG: dict[str, dict] = {
     "rebuild": {"wired": True, "desc": "从事件日志全量重建物化图（损坏恢复）"},
@@ -28,7 +22,7 @@ ADVANCED_CATALOG: dict[str, dict] = {
     "seal": {"wired": False, "planned_in": "级联检查计划（volume_sealed 事件）"},
     "retcon": {"wired": False, "planned_in": "级联检查计划（consistency 模块）"},
     "extension_packs": {"wired": False, "planned_in": "E4 目录式发现"},
-    "audit": {"wired": False, "planned_in": "阶段三 retrieval_audit"},
+    "audit": {"wired": True, "desc": "最近 N 条检索上下文审计（retrieval_audit）"},
 }
 
 
@@ -47,7 +41,8 @@ def _not_wired(capability: str, planned_in: str | None = None) -> dict:
     }
 
 
-def build_mcp(ctx: ProjectContext) -> FastMCP:
+def build_mcp(ctx: ProjectContext, backend=None) -> FastMCP:
+    """backend 为测试注入点（生产缺省在 core 侧解析为配置驱动 LLM）。"""
     mcp = FastMCP("snowel")
 
     @mcp.tool()
@@ -59,22 +54,24 @@ def build_mcp(ctx: ProjectContext) -> FastMCP:
         return {
             "project": str(ctx.project_path),
             "readonly": ctx.readonly,
-            "lease_holder": ctx.holder,
+            "lease_holder": ctx.holder or ctx.api.current_lease_holder(),
             "proposals": counts,
             "graph": ctx.api.graph_stats(),
-            "flow": _not_wired("flow"),
+            "flow": ctx.api.flow_state(),
         }
 
     @mcp.tool()
     def snowel_generate(artifact_type: str,
                         locate: dict | None = None,
                         extra: dict | None = None) -> dict:
-        """创作主力：按产物类型路由对应层 ai_generate（未接线）。"""
-        return _not_wired("generate")
+        """创作主力：按产物类型路由对应层 ai_generate（产出必进提案队列）。"""
+        ctx.require_write()
+        pid = ctx.api.ai_generate(artifact_type, locate, extra, backend=backend)
+        return {"proposal_id": pid}
 
     @mcp.tool()
     def snowel_query(action: str, params: dict | None = None) -> dict:
-        """图谱查询：find / node / edges / descendants / state_at；search 未接线。"""
+        """图谱查询：find / node / edges / descendants / state_at / search。"""
         p = params or {}
         if action == "find":
             return {"result": _rows(ctx.api.find_nodes(name=p.get("name"),
@@ -92,7 +89,8 @@ def build_mcp(ctx: ProjectContext) -> FastMCP:
         if action == "state_at":
             return {"result": ctx.api.state_at(p["story_order"])}
         if action == "search":
-            return _not_wired("query.search")
+            return {"result": ctx.api.search(p["q"],
+                                             mode=p.get("mode", "hybrid"))}
         raise ValueError(
             f"未知 query action：{action}"
             "（可用：find/node/edges/descendants/state_at/search）")
@@ -101,16 +99,21 @@ def build_mcp(ctx: ProjectContext) -> FastMCP:
     def snowel_proposal(action: str, proposal_id: str | None = None,
                         status: str | None = None,
                         reason: str | None = None) -> dict:
-        """提案队列：list / confirm / reject / void；rewrite 未接线。"""
+        """提案队列：list / confirm / reject / void / rewrite（改写指示经 reason 传）。"""
         if action == "list":
             return {"result": _rows(ctx.api.proposals.list(status))}
         if action == "rewrite":
-            return _not_wired("proposal.rewrite")
+            if not proposal_id:
+                raise ValueError("rewrite 需要 proposal_id")
+            ctx.require_write()
+            new_pid = ctx.api.rewrite_proposal(
+                proposal_id, reason or "", backend)
+            return {"proposal_id": new_pid, "rewritten_from": proposal_id}
         if not proposal_id:
             raise ValueError(f"{action} 需要 proposal_id")
         ctx.require_write()
         if action == "confirm":
-            seq = ctx.api.proposals.confirm(proposal_id)
+            seq = ctx.api.confirm(proposal_id)  # 统一编排（C1 代写/revision 物化）
             return {"confirmed": proposal_id, "event_seq": seq}
         if action == "reject":
             ctx.api.proposals.reject(proposal_id, reason)
@@ -124,8 +127,35 @@ def build_mcp(ctx: ProjectContext) -> FastMCP:
     @mcp.tool()
     def snowel_writeback(action: str | None = None,
                          params: dict | None = None) -> dict:
-        """回写环：手动触发抽取、查抽取结果、否决 auto 条目（未接线）。"""
-        return _not_wired("writeback")
+        """回写环：trigger / result / list_auto / reject_auto / reconcile / re-register。"""
+        p = params or {}
+        if action == "trigger":
+            ctx.require_write()
+            return {"result": ctx.api.trigger_extract(
+                p["chapter_id"], backend=backend, model=p.get("model"))}
+        if action == "result":
+            out = {"deviation": ctx.api.deviation(p["chapter_id"])}
+            latest = ctx.api.latest_extract_proposal()
+            if latest is not None:
+                out["proposal"] = latest  # 最近一次抽取提案（core 门面取最新）
+            return {"result": out}
+        if action == "list_auto":
+            return {"result": ctx.api.list_auto()}
+        if action == "reject_auto":
+            ctx.require_write()
+            entries = [(e["target"], e["target_id"])
+                       for e in p.get("entries", [])]
+            return {"result": ctx.api.reject_auto(entries,
+                                                  reason=p.get("reason"))}
+        if action == "reconcile":
+            ctx.require_write()  # 对账会写事件+镜像（F2：readonly 不得写库）
+            return {"result": ctx.api.reconcile_prose()}
+        if action == "re-register":  # L6：崩溃窗口恢复（重放已确认 prose 提案）
+            ctx.require_write()
+            return {"re_registered": ctx.api.reregister_prose(p["proposal_id"])}
+        raise ValueError(
+            f"未知 writeback action：{action}"
+            "（可用：trigger/result/list_auto/reject_auto/reconcile/re-register）")
 
     @mcp.tool()
     def snowel_advanced(op: str | None = None) -> dict:
@@ -136,6 +166,8 @@ def build_mcp(ctx: ProjectContext) -> FastMCP:
             ctx.require_write()
             ctx.api.rebuild()
             return {"rebuilt": True}
+        if op == "audit":
+            return {"result": ctx.api.audit_recent()}
         if op in ADVANCED_CATALOG:
             return _not_wired(op, ADVANCED_CATALOG[op]["planned_in"])
         raise ValueError(f"未知 advanced op：{op}")
