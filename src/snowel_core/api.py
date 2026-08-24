@@ -5,6 +5,9 @@ from .proposal.queue import ProposalQueue
 from .storage import db, lease, queries
 from .storage.projector import rebuild as _rebuild
 
+class ProjectNotFoundError(Exception):
+    """open() 目标目录缺少 snowel.db（L3：不静默新建空库）"""
+
 class SnowelAPI:
     def __init__(self, conn):
         self._conn = conn
@@ -18,7 +21,10 @@ class SnowelAPI:
 
     @classmethod
     def open(cls, path) -> "SnowelAPI":
-        return cls(db.connect(Path(path) / "snowel.db"))
+        db_path = Path(path) / "snowel.db"
+        if not db_path.exists():
+            raise ProjectNotFoundError(f"未找到项目库：{db_path}")
+        return cls(db.connect(db_path))
 
     def close(self):
         self._conn.close()
