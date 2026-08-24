@@ -1,4 +1,5 @@
 # src/snowel_core/api.py
+import json
 from pathlib import Path
 
 from .proposal.queue import ProposalQueue
@@ -9,15 +10,16 @@ class ProjectNotFoundError(Exception):
     """open() 目标目录缺少 snowel.db（L3：不静默新建空库）"""
 
 class SnowelAPI:
-    def __init__(self, conn):
+    def __init__(self, conn, root: Path | None = None):
         self._conn = conn
+        self._root = root          # 项目根（写文件 IO 用，C1）
         self.proposals = ProposalQueue(conn)
 
     @classmethod
     def init_project(cls, path) -> "SnowelAPI":
         p = Path(path); p.mkdir(parents=True, exist_ok=True)
         conn = db.connect(p / "snowel.db"); db.migrate(conn); vec.ensure(conn)
-        return cls(conn)
+        return cls(conn, root=p)
 
     @classmethod
     def open(cls, path) -> "SnowelAPI":
@@ -25,7 +27,7 @@ class SnowelAPI:
         if not db_path.exists():
             raise ProjectNotFoundError(f"未找到项目库：{db_path}")
         conn = db.connect(db_path); vec.ensure(conn)
-        return cls(conn)
+        return cls(conn, root=Path(path))
 
     def close(self):
         self._conn.close()
@@ -64,6 +66,18 @@ class SnowelAPI:
 
     def release_lease(self, holder: str) -> None:
         lease.release(self._conn, holder)
+
+    # 确认即写文件编排（C1）
+    def confirm(self, proposal_id: str, exclude: list[str] | None = None) -> int:
+        """统一确认入口：正文类提案确认即代写文件并登记哈希（C1）。"""
+        p = self.proposals.get(proposal_id)
+        seq = self.proposals.confirm(proposal_id, exclude=exclude)
+        if p["kind"] == "prose":
+            payload = json.loads(p["payload"])
+            from .writeback import mirror
+            mirror.write_prose(self._conn, self._root,
+                               payload["chapter_id"], payload["content"])
+        return seq
 
     # 抽取回写（铁律 1：三端唯一入口，口签名住 llm/ports.py）
     def extract_and_writeback(self, chapter_id: str, backend, model=None):
