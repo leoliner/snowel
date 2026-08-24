@@ -44,3 +44,39 @@ def test_microbeat_group_confirm_with_exclude(api):  # TC-PR-09 / C3
     api.confirm(pid, exclude=["mb1"])                     # 整组确认，剔除 mb1
     ids = {r["id"] for r in api._conn.execute("SELECT id FROM nodes")}
     assert ids == {"mb0", "mb2"}
+
+
+def _seed(conn, facts):
+    from snowel_core.storage import db, events, projector
+    with db.transaction(conn):
+        events.append_event(conn, "proposal_confirmed",
+                            {"artifact_type": "seed", "facts": facts})
+        projector.apply(conn)
+
+
+_CH1 = {"fact": "node", "id": "ch1", "types": ["Chapter"],
+        "name": "第1章", "props": {}}
+_SCENE = {"fact": "node", "id": "sc1", "types": ["Scene"], "name": "雨夜追凶",
+          "props": {"chapter": "ch1", "required_elements": ["红伞", "码头"],
+                    "characters": []}}
+
+
+def test_prose_payload_fits_confirm_chain(api):  # 修复波 F1：C1 确认链契约
+    _seed(api._conn, [_CH1, _SCENE])
+    fake = FakeBackend([_gen_resp(draft="正文内容")])
+    pid = api.ai_generate("prose", locate={"chapter": "ch1"}, backend=fake)
+    api.confirm(pid)                                      # 确认即代写文件（不再 KeyError）
+    f = api._root / "chapters" / "ch1.md"
+    assert "正文内容" in f.read_text(encoding="utf-8")
+    kinds = [r["kind"] for r in api._conn.execute(
+        "SELECT kind FROM events ORDER BY seq")]
+    assert kinds[-2:] == ["proposal_confirmed", "prose_hash_registered"]
+
+
+def test_prose_locate_query_from_scene_card(api):  # 修复波 F2：L9 持久化
+    _seed(api._conn, [_CH1, _SCENE])
+    fake = FakeBackend([_gen_resp()])
+    api.ai_generate("prose", locate={"chapter": "ch1"}, backend=fake)
+    from snowel_core.retrieval import audit
+    loc = json.loads(audit.recent(api._conn)[0]["locate"])
+    assert loc["query"] == "雨夜追凶 红伞 码头"      # 场景卡 name+required_elements

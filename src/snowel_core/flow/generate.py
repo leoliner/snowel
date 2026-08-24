@@ -51,10 +51,13 @@ def ai_generate(api, artifact_type: str, locate: dict | None = None,
     ])
     resp = backend.generate(prompt, model=extra.get("model"))
     parsed = json.loads(resp)
-    return api.proposals.create(artifact_type, {
-        "locate": locate or {}, "draft": parsed.get("draft", ""),
-        "facts": parsed.get("facts", []),
-        "appeared": parsed.get("appeared", [])})
+    payload = {"locate": locate or {}, "draft": parsed.get("draft", ""),
+               "facts": parsed.get("facts", []),
+               "appeared": parsed.get("appeared", [])}
+    if artifact_type == "prose":  # C1 确认链契约：补文件代写两键（纯增量，四键不动）
+        payload["chapter_id"] = (locate or {}).get("chapter")
+        payload["content"] = parsed.get("draft", "")
+    return api.proposals.create(artifact_type, payload)
 
 
 def _default_backend(conn):
