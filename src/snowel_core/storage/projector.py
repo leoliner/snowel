@@ -150,6 +150,8 @@ def apply(conn: sqlite3.Connection) -> None:
         if handler:
             handler(conn, payload, r["seq"])
     recompute_story_order(conn)  # 任何含地址事实的事件后派生序保持最新
+    from . import fts
+    fts.refresh(conn)  # E1/P2：一次确认=事件+物化+索引，FTS 重灌同事务
     if rows:
         conn.execute(
             "INSERT INTO checkpoint(id, seq) VALUES(1, ?) "

@@ -16,3 +16,4 @@ packages = ["src/snowel_core"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore:pkg_resources is deprecated as an API:DeprecationWarning"]  # jieba<=0.42 自身引入

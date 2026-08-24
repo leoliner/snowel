@@ -64,3 +64,7 @@ CREATE TABLE IF NOT EXISTS chapter_prose(
   prose         TEXT NOT NULL DEFAULT '',
   updated_event INTEGER NOT NULL REFERENCES events(seq)
 );
+CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
+  node_id UNINDEXED, text);
+CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
+  chapter_id UNINDEXED, para_idx UNINDEXED, text);
