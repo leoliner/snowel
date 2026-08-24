@@ -1,0 +1,17 @@
+[project]
+name = "snowel"
+version = "0.1.0"
+description = "Snowel 薄壳：CLI（snowel）与 MCP Server（snowel-mcp）"
+requires-python = ">=3.12"
+dependencies = ["snowel-core", "mcp>=1.2", "typer>=0.12"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+snowel = "snowel.cli:main"
+snowel-mcp = "snowel.mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/snowel"]
