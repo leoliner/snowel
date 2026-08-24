@@ -78,7 +78,7 @@ def status(project: ProjectOpt = None) -> None:
         for row in ctx.api.proposals.list():
             counts[row["status"]] = counts.get(row["status"], 0) + 1
         stats = ctx.api.graph_stats()
-        mode = "只读（另一进程持有写租约）" if ctx.readonly else "可写"
+        mode = "只读（CLI 不抢写租约）" if ctx.readonly else "可写"
         typer.echo(f"项目：{ctx.project_path}（{mode}）")
         typer.echo("提案：" + " / ".join(
             f"{k} {counts.get(k, 0)}"
