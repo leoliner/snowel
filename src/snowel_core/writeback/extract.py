@@ -24,6 +24,24 @@ def _has_number(fact: dict) -> bool:
         fact.get("props", {}), ensure_ascii=False)))
 
 
+def _parse_response(resp: str) -> dict:
+    """容忍 Markdown 围栏的响应解析；非法/缺键给结构化 ValueError（铁律 3）。"""
+    text = resp
+    if "```" in resp:  # 真实模型常裹 ```json 围栏，剥壳后再解析
+        seg = resp.split("```")[1] if resp.count("```") >= 2 else resp
+        first, _, rest = seg.partition("\n")
+        if "{" not in first:  # 首行是语言标签行（如 json），丢弃
+            seg = rest
+        text = seg.strip()
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"抽取响应不是合法 JSON：{e}") from e
+    if "facts" not in parsed:
+        raise ValueError("抽取响应缺少 facts 键")
+    return parsed
+
+
 def _validate_groups(fact: dict) -> list[str]:
     warns = []
     for gname, gval in fact.get("props", {}).items():
@@ -48,7 +66,7 @@ def extract_and_writeback(api, chapter_id: str, backend: GenerationBackend,
     if row is None or not row["prose"]:
         raise ValueError(f"章节 {chapter_id} 无镜像全文，先对账（reconcile）")
     resp = backend.generate(_PROMPT.format(prose=row["prose"]), model=model)
-    parsed = json.loads(resp)
+    parsed = _parse_response(resp)
     numeric_high = config.get(conn, "extraction.numeric_high", True)
 
     high, low, warnings, appeared = [], [], list(), parsed.get("appeared", [])

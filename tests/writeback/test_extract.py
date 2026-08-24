@@ -66,3 +66,40 @@ def test_extract_unmanaged_group_warns(api, tmp_path):  # TC-ON-03 消费面 + L
         "appeared": []}, ensure_ascii=False)
     r = api.extract_and_writeback("ch1", backend=FakeBackend([resp]))
     assert any("unmanaged" in w for w in r["warnings"])
+
+
+def test_extract_tolerates_fenced_json(api, tmp_path):  # 真实模型常裹 ```json 围栏
+    _prepare(api, tmp_path)
+    fenced = "```json\n" + EXTRACT_OK + "\n```"
+    r = api.extract_and_writeback("ch1", backend=FakeBackend([fenced]))
+    assert r["auto_event_seq"] is not None   # 围栏剥壳后照常分级入典
+
+
+def test_extract_bad_response_raises_structured(api, tmp_path):
+    import pytest
+    _prepare(api, tmp_path)
+    with pytest.raises(ValueError, match="合法 JSON"):
+        api.extract_and_writeback("ch1", backend=FakeBackend(["不是 JSON"]))
+    with pytest.raises(ValueError, match="facts"):
+        api.extract_and_writeback("ch1", backend=FakeBackend(['{"appeared": []}']))
+
+
+def test_extract_version_mismatch_forces_high(api, tmp_path):  # L1 降级消费面：校验失败不自动入典
+    _prepare(api, tmp_path)
+    resp = json.dumps({"facts": [
+        {"sensitivity": "low", "fact": {
+            "fact": "node", "id": "n-bad", "types": ["Concept"], "name": "坏版本",
+            "props": {"core": {"motivation": "守护", "lie": "独自承担",
+                               "fear": "失去同伴", "arc": "从封闭到开放",
+                               "_schema": "core@abc"}}}}],
+        "appeared": []}, ensure_ascii=False)
+    r = api.extract_and_writeback("ch1", backend=FakeBackend([resp]))
+    assert r["auto_event_seq"] is None          # 强制 high：不进 auto_canonized
+    n = api._conn.execute(
+        "SELECT count(*) c FROM events WHERE kind='auto_canonized'").fetchone()["c"]
+    assert n == 0
+    assert r["proposal_id"] is not None         # 转进提案队列
+    prop = [dict(x) for x in api.proposals.list("pending")][0]
+    ids = [f["id"] for f in json.loads(prop["payload"])["facts"]]
+    assert ids == ["n-bad"]
+    assert any("畸形" in w for w in r["warnings"])  # L1 降级警告记录在案
