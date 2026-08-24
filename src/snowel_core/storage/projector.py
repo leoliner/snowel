@@ -32,6 +32,11 @@ def _upsert_edge(tx, f: dict, seq: int):
 def _facts_event(tx, payload: dict, seq: int):
     for f in payload["facts"]:
         (_upsert_node if f["fact"] == "node" else _upsert_edge)(tx, f, seq)
+    for nid in payload.get("appeared", []):  # P7：登场 → active（不跳级）
+        row = tx.execute("SELECT completeness FROM nodes WHERE id=?",
+                         (nid,)).fetchone()
+        if row is not None and row["completeness"] == "profiled":
+            tx.execute("UPDATE nodes SET completeness='active' WHERE id=?", (nid,))
 
 HANDLERS = {
     "proposal_confirmed": _facts_event,

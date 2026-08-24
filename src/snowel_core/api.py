@@ -91,3 +91,7 @@ class SnowelAPI:
 
     def trigger_extract(self, chapter_id: str, backend, model=None):
         return self.extract_and_writeback(chapter_id, backend, model=model)
+
+    def deviation(self, chapter_id: str) -> dict:
+        from .writeback import deviation
+        return deviation.report(self._conn, chapter_id)

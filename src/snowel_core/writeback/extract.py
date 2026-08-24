@@ -7,6 +7,7 @@ from ..llm.backend import GenerationBackend
 from ..ontology import groups
 from ..storage import config, events, projector
 from ..storage.db import transaction
+from . import deviation
 
 _PROMPT = """你是小说设定抽取器。从下方章节正文中抽取事实。
 判据：比喻、夸张、通感等修辞不构成事实，一律忽略（忽略修辞判据）。
@@ -95,4 +96,5 @@ def extract_and_writeback(api, chapter_id: str, backend: GenerationBackend,
             projector.apply(conn)
     return {"chapter_id": chapter_id, "proposal_id": proposal_id,
             "auto_event_seq": auto_seq, "warnings": warnings,
-            "appeared": appeared}
+            "appeared": appeared,
+            "deviation": deviation.report(conn, chapter_id)}  # C12：随抽取产出
