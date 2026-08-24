@@ -76,6 +76,17 @@ class SnowelAPI:
         from .flow import snowflake
         return snowflake.expand_chapter(self, chapter_id, backend, extra)
 
+    # 卷级展开（FL-01/02）：卷首世界状态实时重放（C8，不落快照）
+    def volume_start_state(self, volume_id: str) -> dict:
+        from .flow import snowflake
+        return snowflake.volume_start_state(self._conn, volume_id)
+
+    # 卷级展开：主题→三幕两提案，locate 携带卷首状态进卷级上下文，不自动确认
+    def expand_volume(self, volume_id: str, backend,
+                      extra: dict | None = None) -> list[str]:
+        from .flow import snowflake
+        return snowflake.expand_volume(self, volume_id, backend, extra)
+
     # 租约（C10）
     def acquire_lease(self, holder: str, stale_after: float = 30.0) -> bool:
         return lease.acquire(self._conn, holder, stale_after)

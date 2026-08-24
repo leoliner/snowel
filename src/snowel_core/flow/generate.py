@@ -46,6 +46,9 @@ def ai_generate(api, artifact_type: str, locate: dict | None = None,
         spec["template"], RETURN_CONTRACT,
         "=== 上下文 ===",
         "\n".join(s["text"] for s in bundle["sections"]),
+        # E1 裁决：locate 带 start_state 时注入卷首世界状态（卷级展开用）
+        *([f"=== 卷首世界状态 ===\n{json.dumps(locate['start_state'], ensure_ascii=False)}"]
+          if (locate or {}).get("start_state") else []),
         "=== 近期被否提案（勿重复提出） ===", rejected_digest(api._conn),
         *([f"=== 作者附言 ===\n{extra['notes']}"] if extra.get("notes") else []),
     ])
