@@ -1,6 +1,8 @@
 # src/snowel_core/flow/revision.py
 import json
 
+from ..llm.ports import parse_llm_json
+
 
 def propose_revision(api, node_id: str, new_address: dict, reason: str = "") -> str:
     """统一 revision（§5.2）：提案 → （级联影响分析位）→ 确认，三层复用。"""
@@ -18,7 +20,7 @@ def rewrite_proposal(api, proposal_id: str, instruction: str, backend) -> str:
     resp = backend.generate(
         f"按指示改写以下草稿，返回 JSON（draft/facts/appeared）。\n"
         f"指示：{instruction}\n\n原草稿：{payload.get('draft', '')}")
-    parsed = json.loads(resp)
+    parsed = parse_llm_json(resp)  # facts/appeared 仍继承原 payload（控制器裁决）
     return api.proposals.create(p["kind"], {
         **payload, "draft": parsed.get("draft", ""),
         "rewritten_from": proposal_id})

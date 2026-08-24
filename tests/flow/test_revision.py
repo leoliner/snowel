@@ -34,6 +34,7 @@ def test_revision_unified_flow(api):  # TC-FL-06：章改卷走统一提案→�
         "SELECT payload FROM events WHERE kind='revision_applied'").fetchone()
     p = json.loads(ev["payload"])
     assert p["structure_changes"][0]["node_id"] == "c5"
+    assert json.loads(api.get_node("c5")["props"])["address"]["volume"] == 1
     assert api.get_node("c5")["story_order"] < api.get_node("c9")["story_order"]
 
 
@@ -56,3 +57,12 @@ def test_rewrite_proposal_keeps_original(api):
     assert api.proposals.get(p2)["status"] == "pending"
     assert json.loads(api.proposals.get(p2)["payload"])["rewritten_from"] == p1
     assert api.proposals.get(p1)["status"] == "pending"   # 原提案不动
+
+
+def test_rewrite_accepts_fenced_response(api):  # T8 同款：真实模型裹围栏
+    p1 = api.proposals.create("premise", {"draft": "原稿"})
+    fenced = "```json\n" + json.dumps({"draft": "改写稿", "facts": [],
+                                       "appeared": []},
+                                      ensure_ascii=False) + "\n```"
+    p2 = api.rewrite_proposal(p1, "更黑暗一点", backend=FakeBackend([fenced]))
+    assert json.loads(api.proposals.get(p2)["payload"])["draft"] == "改写稿"
