@@ -95,3 +95,13 @@ class SnowelAPI:
     def deviation(self, chapter_id: str) -> dict:
         from .writeback import deviation
         return deviation.report(self._conn, chapter_id)
+
+    # auto 条目事后否决 + 轻量反查（C2/C11）
+    def list_auto(self) -> list[dict]:
+        from .writeback import review
+        return review.list_auto(self._conn)
+
+    def reject_auto(self, entries: list[tuple[str, str]],
+                    reason: str | None = None) -> dict:
+        from .writeback import review
+        return review.reject_auto(self._conn, entries, reason=reason)
