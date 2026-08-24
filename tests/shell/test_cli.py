@@ -84,3 +84,32 @@ def test_project_option_overrides_cwd(tmp_path, monkeypatch):
     SnowelAPI.init_project(tmp_path / "proj")
     res = runner.invoke(app, ["status", "--project", str(tmp_path / "proj")])
     assert res.exit_code == 0
+
+
+def test_project_option_prepositioned(tmp_path, monkeypatch):
+    # 回调级用法：--project 位于子命令之前（cwd 无项目，验证选项真正生效）
+    monkeypatch.delenv("SNOWEL_PROJECT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    SnowelAPI.init_project(tmp_path / "proj")
+    res = runner.invoke(app, ["--project", str(tmp_path / "proj"), "status"])
+    assert res.exit_code == 0
+
+
+def test_project_short_alias(tmp_path, monkeypatch):
+    # 命令级短别名 -p 等价于 --project
+    monkeypatch.delenv("SNOWEL_PROJECT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    SnowelAPI.init_project(tmp_path / "proj")
+    res = runner.invoke(app, ["status", "-p", str(tmp_path / "proj")])
+    assert res.exit_code == 0
+
+
+def test_status_via_env_var(tmp_path, monkeypatch):
+    # 无显式选项时回落 SNOWEL_PROJECT（cwd 在别处）
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    SnowelAPI.init_project(tmp_path / "proj")
+    monkeypatch.setenv("SNOWEL_PROJECT", str(tmp_path / "proj"))
+    monkeypatch.chdir(elsewhere)
+    res = runner.invoke(app, ["status"])
+    assert res.exit_code == 0

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from .project import ProjectContext, open_project, resolve_project_path
+from .project import (ProjectContext, ProjectError, open_project,
+                      resolve_project_path)
 
 _NOT_WIRED_PLANNED = {
     "generate": "阶段三 生成环（llm/flow/retrieval，E3 三口）",
@@ -143,6 +144,14 @@ def build_mcp(ctx: ProjectContext) -> FastMCP:
 
 
 def main() -> None:
-    ctx = open_project(resolve_project_path(None))  # env SNOWEL_PROJECT 或 cwd
-    mcp = build_mcp(ctx)
-    mcp.run("stdio")
+    try:
+        ctx = open_project(resolve_project_path(None))  # env SNOWEL_PROJECT 或 cwd
+    except ProjectError as e:
+        import sys
+        print(f"snowel-mcp 启动失败：{e}", file=sys.stderr)
+        raise SystemExit(1) from e
+    try:
+        mcp = build_mcp(ctx)
+        mcp.run("stdio")
+    finally:
+        ctx.close()  # 释放写租约并停止心跳，避免他端等 stale_after 过期
