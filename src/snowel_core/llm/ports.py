@@ -2,6 +2,7 @@
 import sqlite3
 
 from ..storage import config
+from ..writeback.extract import extract_and_writeback  # 口签名住 ports（design §7），实现住 writeback
 from .backend import GenerationBackend, LitellmBackend
 
 

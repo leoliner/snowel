@@ -64,3 +64,8 @@ class SnowelAPI:
 
     def release_lease(self, holder: str) -> None:
         lease.release(self._conn, holder)
+
+    # 抽取回写（铁律 1：三端唯一入口，口签名住 llm/ports.py）
+    def extract_and_writeback(self, chapter_id: str, backend, model=None):
+        from .llm.ports import extract_and_writeback as _port
+        return _port(self, chapter_id, backend, model=model)
