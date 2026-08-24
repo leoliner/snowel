@@ -58,3 +58,24 @@ def test_reconcile_reports_missing_file(api, tmp_path):
     (tmp_path / "chapters" / "ch1.md").unlink()
     assert mirror.reconcile(api._conn, tmp_path) == [
         {"chapter_id": "ch1", "status": "missing_file"}]
+
+
+def test_write_prose_hydrates_prose_column(api, tmp_path):
+    mirror.write_prose(api._conn, tmp_path, "ch1", "第一章正文")
+    prose = api._conn.execute(
+        "SELECT prose FROM chapter_prose WHERE chapter_id='ch1'").fetchone()
+    assert prose["prose"] == "第一章正文"   # 事务内水化，下游读镜像即得全文
+
+
+def test_reconcile_repairs_empty_prose_without_events(api, tmp_path):
+    mirror.write_prose(api._conn, tmp_path, "ch1", "正文")
+    api._conn.execute(  # 模拟 rebuild：事件重放后 prose 置空、哈希仍登记
+        "UPDATE chapter_prose SET prose='' WHERE chapter_id='ch1'")
+    n_before = api._conn.execute("SELECT count(*) c FROM events").fetchone()["c"]
+    assert mirror.reconcile(api._conn, tmp_path) == []   # 纯数据修复不报变更
+    prose = api._conn.execute(
+        "SELECT prose FROM chapter_prose WHERE chapter_id='ch1'").fetchone()
+    assert prose["prose"] == "正文"      # P1：全文靠对账从文件重灌
+    n_after = api._conn.execute("SELECT count(*) c FROM events").fetchone()["c"]
+    assert n_after == n_before           # 哈希未变，不追加事件
+

@@ -26,13 +26,15 @@ def write_prose(conn: sqlite3.Connection, project_root: Path,
         seq = events.append_event(conn, "prose_hash_registered", {
             "chapter_id": chapter_id, "path": str(f), "hash": _sha(content)})
         projector.apply(conn)
+        conn.execute("UPDATE chapter_prose SET prose=? WHERE chapter_id=?",
+                     (content, chapter_id))  # P1：全文由 writeback 层水化
     return seq
 
 
 def reconcile(conn: sqlite3.Connection, project_root: Path) -> list[dict]:
     """D8 对账：文件是真相源，哈希不一致以文件为准重灌镜像。"""
     changes = []
-    for r in conn.execute("SELECT chapter_id, path, hash FROM chapter_prose"):
+    for r in conn.execute("SELECT chapter_id, path, hash, prose FROM chapter_prose"):
         f = Path(r["path"])
         if not f.exists():
             changes.append({"chapter_id": r["chapter_id"], "status": "missing_file"})
@@ -40,6 +42,11 @@ def reconcile(conn: sqlite3.Connection, project_root: Path) -> list[dict]:
         content = f.read_text(encoding="utf-8")
         new_hash = _sha(content)
         if new_hash == r["hash"]:
+            if r["prose"] == "":  # rebuild 后镜像全文丢失：纯数据修复，哈希未变不写事件
+                with transaction(conn):
+                    conn.execute(
+                        "UPDATE chapter_prose SET prose=? WHERE chapter_id=?",
+                        (content, r["chapter_id"]))
             continue  # 已登记写入短路（TC-WB-02）：核心代写的文件不再触发
         with transaction(conn):
             events.append_event(conn, "prose_external_change", {
