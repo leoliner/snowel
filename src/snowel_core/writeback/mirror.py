@@ -4,7 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from ..storage import events, projector
+from ..storage import events, fts, projector
 from ..storage.db import transaction
 
 
@@ -28,6 +28,7 @@ def write_prose(conn: sqlite3.Connection, project_root: Path,
         projector.apply(conn)
         conn.execute("UPDATE chapter_prose SET prose=? WHERE chapter_id=?",
                      (content, chapter_id))  # P1：全文由 writeback 层水化
+        fts.refresh(conn)  # apply 时 prose 列尚未水化，水化后同事务重灌，首写即可检
     return seq
 
 

@@ -35,6 +35,17 @@ def test_fts_finds_prose_paragraph(core_conn, tmp_path):
     assert r["paragraphs"][0]["chapter_id"] == "ch1"
 
 
+def test_fts_searchable_immediately_after_write_prose(core_conn, tmp_path):
+    # 修复轮：write_prose 事务内 prose 水化后即重灌 FTS——无手动 UPDATE/refresh，
+    # 首写章节立即可检（T6 混合回退、T12 引用提示依赖此语义）
+    from snowel_core.writeback import mirror
+    mirror.write_prose(core_conn, tmp_path, "chE",
+                       "开篇\n\n林晚在雪夜里点燃了第七盏灯塔")
+    r = fts.search(core_conn, "第七盏灯塔")
+    assert r["paragraphs"] and r["paragraphs"][0]["chapter_id"] == "chE"
+    assert r["paragraphs"][0]["para_idx"] == 1
+
+
 def test_fts_retraction_removes_hit(core_conn):
     _confirm(core_conn, [{"fact": "node", "id": "n1", "types": ["Concept"],
                           "name": "临时设定", "props": {}}])
