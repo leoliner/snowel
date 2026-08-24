@@ -68,3 +68,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
   node_id UNINDEXED, text);
 CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
   chapter_id UNINDEXED, para_idx UNINDEXED, text);
+CREATE TABLE IF NOT EXISTS retrieval_audit(
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts       TEXT NOT NULL,
+  strategy TEXT NOT NULL,
+  dry_run  INTEGER NOT NULL DEFAULT 0,
+  locate   TEXT,
+  bundle   TEXT NOT NULL
+);
