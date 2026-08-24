@@ -83,3 +83,11 @@ class SnowelAPI:
     def extract_and_writeback(self, chapter_id: str, backend, model=None):
         from .llm.ports import extract_and_writeback as _port
         return _port(self, chapter_id, backend, model=model)
+
+    # 对账/手动抽取门面（§3.3，P4 三模式通用）
+    def reconcile_prose(self) -> list:
+        from .writeback import mirror
+        return mirror.reconcile(self._conn, self._root)
+
+    def trigger_extract(self, chapter_id: str, backend, model=None):
+        return self.extract_and_writeback(chapter_id, backend, model=model)
