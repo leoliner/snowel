@@ -26,7 +26,9 @@ class SnowelAPI:
         db_path = Path(path) / "snowel.db"
         if not db_path.exists():
             raise ProjectNotFoundError(f"未找到项目库：{db_path}")
-        conn = db.connect(db_path); vec.ensure(conn)
+        conn = db.connect(db_path)
+        db.migrate(conn)  # 旧库补新表（schema 全 IF NOT EXISTS，幂等）；apply 尾部 fts.refresh 依赖新表
+        vec.ensure(conn)
         return cls(conn, root=Path(path))
 
     def close(self):

@@ -1,7 +1,7 @@
 # tests/retrieval/test_context.py
 import json
 from snowel_core.retrieval import audit, context, hybrid
-from snowel_core.storage import db, events, projector
+from snowel_core.storage import db, events, projector, vec
 
 
 def _confirm(conn, facts, kind="t"):
@@ -14,7 +14,7 @@ def _confirm(conn, facts, kind="t"):
 def _seed_book(conn):
     _confirm(conn, [
         {"fact": "node", "id": "sc1", "types": ["Scene"], "name": "雨夜初见",
-         "props": {"characters": ["hero"], "required_elements": ["雨夜"],
+         "props": {"characters": ["hero", "dead1"], "required_elements": ["雨夜"],
                    "chapter": "ch1"}},
         {"fact": "node", "id": "hero", "types": ["Character"], "name": "林晚",
          "props": {"core": {"motivation": "活下来", "lie": "没人会救我",
@@ -65,6 +65,26 @@ def test_hybrid_search_marks_dead(core_conn):  # TC-RT-03 兜底标记
     dead = [h for h in r["nodes"] if h["node_id"] == "dead1"]
     # mb0 → story_order 0（recompute_story_order 派生序 0 基），附"已死亡@拍"
     assert dead and dead[0]["dead_beat"] == 0
+
+
+def test_hybrid_vec_path_skips_retracted(core_conn):
+    # 撤回节点在下次 rebuild 前残留于 node_vec：vec 补按 active 过滤，不回流 hybrid 结果
+    vec.ensure(core_conn)
+    _confirm(core_conn, [
+        {"fact": "node", "id": "gone", "types": ["Concept"],
+         "name": "寒潮营地", "props": {}},
+        {"fact": "node", "id": "keep", "types": ["Concept"],
+         "name": "暖雾营地", "props": {}},
+    ])
+    vec.rebuild_embeddings(core_conn)          # node_vec 此时含 gone
+    with db.transaction(core_conn):
+        events.append_event(core_conn, "retraction",
+                            {"target": "node", "target_id": "gone"})
+    projector.apply(core_conn)                 # FTS 已剔除 gone；node_vec 仍残留
+    r = hybrid.search(core_conn, "营地")       # limit 内两节点都命中 vec 路径
+    ids = [n["node_id"] for n in r["nodes"]]
+    assert "gone" not in ids
+    assert "keep" in ids
 
 
 def test_fallback_recall_excludes_todo(core_conn):  # TODO 不进任何 section：兜底召回同理

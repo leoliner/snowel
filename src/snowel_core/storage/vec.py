@@ -18,9 +18,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS prose_vec USING vec0(
 def ensure(conn: sqlite3.Connection) -> None:
     conn.enable_load_extension(True)  # conda Python 需显式开扩展加载
     try:
-        sqlite_vec.load(conn)
+        sqlite_vec.load(conn)  # vec0 模块按连接注册：已建表的库新连接也须加载才能查询
     finally:
         conn.enable_load_extension(False)
+    hit = conn.execute("SELECT 1 FROM sqlite_master "
+                       "WHERE type='table' AND name='node_vec'").fetchone()
+    if hit:
+        return  # 已建表短路：executescript 会隐式 COMMIT 未决事务，不随每次搜索重跑
     conn.executescript(_VEC_SQL)
 
 

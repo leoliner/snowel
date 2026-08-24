@@ -18,7 +18,7 @@ def search(conn: sqlite3.Connection, q: str, limit: int = 20,
         for h in vec.search(conn, q, limit):
             if h["kind"] == "node" and h["node_id"] not in seen:
                 row = queries.get_node(conn, h["node_id"])
-                if row is not None:
+                if row is not None and row["active"]:  # 撤回节点 vec 残留（重建前）不回流
                     out["nodes"].append({"node_id": h["node_id"],
                                          "name": row["name"]})
     for n in out["nodes"]:  # TC-RT-03：死亡角色附"已死亡@拍N"

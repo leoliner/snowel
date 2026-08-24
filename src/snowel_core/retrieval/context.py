@@ -37,7 +37,7 @@ def _todo(conn, node_id) -> bool:
         json.loads(row["props"]).get("core", {}).get("todo"))
 
 
-def _node_section(conn, kind, rows, trim_core=False):
+def _node_section(kind, rows, trim_core=False):
     rows = [r for r in rows
             if not json.loads(r["props"]).get("core", {}).get("todo")]
     # TODO 设定项排除（§6.1）：不进任何 section（refs 与 text 均不含）
@@ -58,26 +58,26 @@ def compose_context(conn: sqlite3.Connection, strategy: str,
         so = locate.get("story_order", 10 ** 9)
         scene = _scene_of_chapter(conn, locate.get("chapter"))
         if scene is not None:
-            sections.append(_node_section(conn, "scene_card", [scene]))
+            sections.append(_node_section("scene_card", [scene]))
             chars = _alive(conn, json.loads(scene["props"])
                            .get("characters", []), so)
-            sections.append(_node_section(conn, "characters", chars,
+            sections.append(_node_section("characters", chars,
                                           trim_core=True))
         open_fs = [r for r in conn.execute(
             "SELECT * FROM nodes WHERE active=1") if "Foreshadow" in r["types"]
             and _unrecovered(conn, r, so)]  # 已回收（payoff 拍 ≤ 目标拍）剔除，"∩ 相关"v1 不做
-        sections.append(_node_section(conn, "foreshadows", open_fs))
+        sections.append(_node_section("foreshadows", open_fs))
         world = [r for r in conn.execute(
             "SELECT * FROM nodes WHERE active=1") if "Concept" in r["types"]]
-        sections.append(_node_section(conn, "worldview", world))
+        sections.append(_node_section("worldview", world))
     elif strategy == "character":
         row = queries.get_node(conn, locate["node_id"])
         peers = [queries.get_node(conn, e["dst"] if e["src"] == locate["node_id"]
                                   else e["src"])
                  for e in queries.edges_of(conn, locate["node_id"])]
-        sections.append(_node_section(conn, "character", [row] if row else []))
+        sections.append(_node_section("character", [row] if row else []))
         sections.append(_node_section(
-            conn, "relations", [p for p in peers if p is not None]))
+            "relations", [p for p in peers if p is not None]))
     q = locate.get("query") or locate.get("chapter") or ""
     if q:
         fallback = hybrid.search(conn, q, mode="hybrid")
