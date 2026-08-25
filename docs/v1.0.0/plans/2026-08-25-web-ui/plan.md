@@ -8,7 +8,7 @@
 
 **Tech Stack:** 后端 FastAPI + uvicorn + httpx（测试，ASGITransport）；前端 React 18 + Vite + TypeScript + vitest + @testing-library/react；LLM 复用 core `GenerationBackend`（测试注入 FakeBackend，零真网调用）。
 
-**Spec:** `docs/v1.0.0/requirements.md`（§7.1 Web 界面、§7.2 项目绑定、§8 技术栈、铁律 1–5）、`docs/v1.0.0/design.md`（§5 模块划分、§7 三口、§10 对外壳约束）、`docs/v1.0.0/testcases.md`（TC-SH-03/04/06/08）
+**Spec:** `docs/v1.0.0/requirements.md`（§7.1 Web 界面、§7.2 项目绑定、§8 技术栈、铁律 1–5）、`docs/v1.0.0/design.md`（§5 模块划分、§7 三口、§10 对外壳约束）、`docs/v1.0.0/testcases.md`（TC-SH-03/04/06/08）、`docs/v1.0.0/details/ui-design-01.md`（UI 设计 tokens 与交互易用性规约——前端任务的实现约束，W9）
 
 ## Global Constraints
 
@@ -42,6 +42,7 @@
 | W5 | **租约**：`snowel web` 启动即 `acquire_lease("web:<pid>")`，失败 → 只读会话（`/api/session` 返回 `{"readonly": true, "holder": ...}`，前端顶部横幅；写端点统一 409）；server 退出 release | C10/TC-SH-04；进程级租约与 MCP/CLI 同源 | Web 长开占租约挤占 MCP 写——作者单机单写场景，可接受 |
 | W6 | **聊天 SSE 流式（回合级事件流）**：core `chat.run_stream` 为同步生成器逐事件 yield；`POST /api/chat/stream` 以 StreamingResponse 推 SSE（`data: {事件JSON}\n\n` 每事件一行，末尾 `{"type":"done","proposal_ids":[...]}` 收尾），FastAPI 经 `iterate_in_threadpool` 线程池迭代 core 生成器；`POST /api/chat` 非流式聚合版保留（`list(run_stream())`，简单客户端/测试用）；前端 fetch ReadableStream + 行解析消费（EventSource 不支持 POST）；客户端断开 → 生成器 GeneratorExit 自然终止，已入队提案保留（符合语义）。**LLM 生成内部仍整段**（GenerationBackend 不动）：指令协议是 JSON，逐 token 推不完整 JSON 无意义；reply 打字机效果由前端渐显动画承担（纯视觉） | 体验：多轮代理每步实时上屏（最大痛点）；成本：core 生成器化 + SSE 编码，风险低（threadpool 迭代同步生成器是成熟模式） | token 级 LLM 流缺失（豁免登记）——若未来要真 token 流，需给 backend 加 `stream()` 口并重设计输出协议 |
 | W7 | **中栏编辑页写路径**：章节编辑保存 = 旧文对账后 `reregister_prose` 或镜像直写经 `reconcile_prose` 状态提示；外部未对账编辑（挂账 manual confirm 覆盖提示）= 确认 prose 提案前面板调 `reconcile_prose()` 展示 changed 清单，作者显式选择 | writeback ledger 挂账"manual 模式 confirm 静默覆盖未对账外部编辑（Web UI 提示面）"的承接 | 无 |
+| W9 | **前端遵循 ui-design-01 规约（Tailwind）**：`web/tailwind.config.ts` 映射规约 §2 全部语义 token（色板/字体/圆角/阴影），组件只用语义类名、禁裸色值；单主题暗色创作舱；布局/组件样式/交互易用性按规约 §3–§5 执行，验收锚见规约 §7 | 用户裁决：美观与易用性优先（推翻原"零新依赖"中样式部分——Tailwind 为原子 CSS 非组件库，路由库仍不加） | tokens 单点维护，换风格改 config 不改组件 |
 
 ## 文件结构总表
 
@@ -367,24 +368,26 @@ async def test_proposal_read_surface(project):
 
 ---
 
-### Task 9: React 工程骨架——三栏布局壳 + API client + 只读横幅（W2/W3）
+### Task 9: React 工程骨架——Tailwind tokens + 三栏布局壳 + API client + 只读横幅（W2/W3/W9）
 
 **Files:**
-- Create: `web/`（`package.json`、`vite.config.ts`、`tsconfig.json`、`index.html`、`src/main.tsx`、`src/App.tsx`、`src/api.ts`、`src/types.ts`、`src/components/*.tsx`、`src/App.test.tsx`）
-- Test: `web/src/App.test.tsx`（vitest + testing-library）
+- Create: `web/`（`package.json`、`vite.config.ts`、`tsconfig.json`、`tailwind.config.ts`、`tailwind.config.test.ts`、`index.html`、`src/main.tsx`、`src/index.css`、`src/App.tsx`、`src/api.ts`、`src/types.ts`、`src/components/SessionBanner.tsx`、`src/App.test.tsx`）
+- Test: `web/tailwind.config.test.ts`、`web/src/App.test.tsx`（vitest + testing-library）
 
 **Interfaces:**
 - Produces:
-  - Vite + React 18 + TS 工程（无路由库——单页状态切换，YAGNI）；`npm run dev`（vite proxy `/api` → `127.0.0.1:8642`）与 `npm run build`（产物 `web/dist`）。
+  - Vite + React 18 + TS + **Tailwind CSS** 工程（无路由库——单页状态切换；无 UI 组件库——样式全走语义 token）；`npm run dev`（vite proxy `/api` → `127.0.0.1:8642`）与 `npm run build`（产物 `web/dist`）。
+  - `tailwind.config.ts`：映射 ui-design-01 §2 全部语义 token（`colors.bg-base/bg-panel/bg-raised/border/text-primary/text-prose/text-muted/accent/danger/ok/warn`、`fontFamily.ui/prose/mono`、圆角与阴影）；`tailwind.config.test.ts` 断言关键 token 值存在（防漂移，规约 §7 第一行锚）。
+  - `src/index.css`：Tailwind 指令 + 全局基线（`bg-base` 底、焦点环 1px `accent`、滚动条暗色）。
   - `src/api.ts`：`api.get/post` 薄封装（fetch + JSON + 错误 detail 抛出）；类型面 `src/types.ts`（Session/FlowState/Proposal/Violation/ChatEvent 等与后端响应一比一）。
-  - `App.tsx` 三栏布局壳：左 `FlowTree`（T10 实现）/ 中 `ProseEditor`（T11）/ 右 `Workspace`（T10）+ 常驻 `ChatSidebar`（T12）+ 顶部 `SessionBanner`（readonly=true 时黄条"只读模式：写租约由 {holder} 持有"）。
-  - 组件数据获取模式：`useApi(path)` 简易 hook（loading/error 态）。
-- 测试锚：App 壳渲染三栏骨架（mock api 后断言三容器存在）；SessionBanner 对 readonly=true 显示提示文案。
+  - `App.tsx` 三栏布局壳（ui-design-01 §3）：顶栏（项目名/当前卷章/会话状态点）+ 左 `FlowTree` 容器（T10）/ 中 `ProseEditor` 容器（T11）/ 右栏上下分区（工作区 tab + 聊天侧栏容器 T12，聊天默认占右栏高 40% 可折叠）+ `SessionBanner`（readonly=true 时 warn 黄条"只读模式：写租约由 {holder} 持有"）。
+  - 组件数据获取模式：`useApi(path)` 简易 hook（loading 骨架屏态/error 态，规约 §5.1）。
+- 测试锚：App 壳渲染四容器（`data-testid="col-flow/workspace/prose/chat"`）；SessionBanner 对 readonly=true 显示提示文案；token 测试断言 `bg-base` 等语义色值。
 
-- [ ] **Step 1: 写失败测试**（`web/src/App.test.tsx`：vi.mock('./api') 后 render(<App/>)，断言 `data-testid="col-flow/workspace/prose/chat"` 四容器与横幅行为）
-- [ ] **Step 2: 确认失败**（`npx vitest run`）→ **Step 3: 最小实现**（`npm create vite@latest` 起步 + 手工裁剪；node ≥18 前提写入 web/README.md）
+- [ ] **Step 1: 写失败测试**（`web/src/App.test.tsx`：vi.mock('./api') 后 render(<App/>) 断言四容器与横幅行为；`tailwind.config.test.ts` 断言语义 token）
+- [ ] **Step 2: 确认失败**（`npx vitest run`）→ **Step 3: 最小实现**（`npm create vite@latest` 起步 + 裁剪 + `npm i -D tailwindcss postcss autoprefixer`；node ≥18 前提写入 web/README.md）
 - [ ] **Step 4: 通过**（`npx vitest run` + `npm run build` 产出 dist）
-- [ ] **Step 5: 提交**：`git commit -m "feat(web): React+Vite+TS scaffold with three-column shell, api client, readonly banner"`
+- [ ] **Step 5: 提交**：`git commit -m "feat(web): Tailwind token scaffold, three-column shell, api client, readonly banner (W9)"`
 
 ---
 
@@ -401,7 +404,7 @@ async def test_proposal_read_surface(project):
   - `ProposalList`：按 status 过滤（pending/stale 优先展示）；点击选中进 `ProposalPanel`。
   - `ProposalPanel`：payload facts 的 diff 视图（新增/变更节点-键-旧值→新值表格式呈现）；kind=="retcon" 时确认按钮调 confirm_retcon 端点并展示 impact（violations 全量——**L19 多键天然展开**）；确认后展示 cascade.violations（level 分色 major/minor）；stale 提案展示 stale_hint；改写框（instruction 一等输入）。
   - `GenerateForm`：artifact_type 选择（premise/synopsis/summary/beat_sheet/characters/scenes/prose）+ locate/extra 附加字段（JSON 文本域）→ POST generate → 跳转新提案面板。
-- 测试锚：FlowTree 渲染层状态与卷章树（mock /api/flow）；ProposalPanel 对含 contradiction violation 的 confirm 响应渲染 major 行；retcon kind 按钮走 confirm_retcon；prose 提案 + reconcile changed 非空 → 显示外部改动警告。
+- 测试锚：FlowTree 渲染层状态与卷章树（mock /api/flow，current_layer 高亮行）；ProposalPanel 对含 contradiction violation 的 confirm 响应渲染 major 行，diff 旧/新值语义类名断言（`danger`/`ok`，规约 §4/§7）；retcon kind 按钮走 confirm_retcon；prose 提案 + reconcile changed 非空 → 显示外部改动 warn 警告；否决/seal 点击弹二次确认对话框且 Esc 可取消（规约 §5.4）；空提案列表渲染"暂无待确认提案"占位（规约 §5.2）；stale 提案 `warn` 描边 + hint 展示。
 
 - [ ] **Step 1: 写失败测试**（四组件各一例，vi.mock api）→ **Step 2: 确认失败** → **Step 3: 最小实现** → **Step 4: 通过**（vitest + build）
 - [ ] **Step 5: 提交**：`git commit -m "feat(web): flow tree, proposal panel with diff/cascade/reconcile warning, generate form (7.1/TC-SH-08)"`
@@ -418,10 +421,10 @@ async def test_proposal_read_surface(project):
 **Interfaces:**
 - Consumes: `GET /api/flow`（卷章树）、`GET /api/reconcile`（changed/missing）、`GET /api/writeback/deviation/{chapter}`、`POST /api/writeback/extract`、`POST /api/writeback/reregister`、prose 提案确认面（Task 10 的 ProposalPanel 承担，编辑页提供跳转）。
 - Produces:
-  - 章节列表（flow.volumes[].chapters + reconcile missing 提示"镜像中存在但库内无章"）；选中章 → 段落编辑（textarea 按 mirror 段落切分；保存 = 写本地文件经后端？**裁决：v1 编辑保存路径 = 生成 prose 提案走确认**——编辑区产出 prose 草稿提案（api.proposals.create 经新端点 `POST /api/prose` body `{chapter_id, content}`，core 侧复用既有 prose 提案 kind），确认后 reregister 落盘；外部编辑（编辑器外改文件）由 reconcile 面板展示并引导 reregister）。
+  - 章节列表（flow.volumes[].chapters + reconcile missing 提示"镜像中存在但库内无章"）；选中章 → 段落编辑（`font-prose` + `text-prose` + 42em 行宽居中，规约 §5.9；textarea 按 mirror 段落切分；未保存改动 = 章名旁 `warn` 圆点；保存 = 生成 prose 提案走确认——编辑区产出 prose 草稿提案（api.proposals.create 经新端点 `POST /api/prose` body `{chapter_id, content}`，core 侧复用既有 prose 提案 kind），确认后 reregister 落盘）；外部编辑（编辑器外改文件）由 reconcile 面板展示（编辑器顶部 `warn` 条列出变更文件 + "重新登记"入口）并引导 reregister。
   - `POST /api/prose` 端点（T11 顺带加壳：一比一 `api.proposals.create("prose", {chapter_id, content})`）。
   - 抽取入口：选中章 + `POST /api/writeback/extract` → 结果面板（appeared/warnings/cascade/偏差 deviation 链接）。
-- 测试锚：章节渲染 + missing 提示；编辑保存创建 pending prose 提案（mock）；抽取结果面板字段。
+- 测试锚：章节渲染 + missing 提示；无章空态"还没有章节"占位（规约 §5.2）；编辑保存创建 pending prose 提案（mock）；编辑区语义类名（`font-prose text-prose`）；抽取结果面板字段。
 
 - [ ] **Step 1: 写失败测试** → **Step 2: 确认失败** → **Step 3: 最小实现** → **Step 4: 通过**
 - [ ] **Step 5: 提交**：`git commit -m "feat(web): prose editor with reconcile status, proposal-based save, extract panel (7.1)"`
@@ -438,8 +441,8 @@ async def test_proposal_read_surface(project):
 - Consumes: `POST /api/chat/stream`（T8，SSE）。
 - Produces:
   - `sse.ts`：`streamSSE(url, body, onEvent, signal)`——fetch + `response.body.getReader()` + TextDecoder 按 `\n\n` 切事件、剥 `data: ` 前缀 JSON.parse；AbortController 支持中断。
-  - `ChatSidebar`：消息历史（本地态 + 传入 history）；发送 → **事件到达即渲染**（tool_call 卡片"调用 generate…"、tool_result 成败、reply 气泡带渐显打字机动画——纯前端 CSS/JS 效果，W6）；done 事件 proposal_ids 非空 → 尾部提示"已入队 N 个提案" + 点击跳转 ProposalList；error 事件/网络失败 → 红条；发送中可中断（断开按钮 → abort）。
-- 测试锚：mock `sse.ts`（vi.mock）按序喂四事件 → 断言三类渲染块、跳转链接与中断按钮存在；reply 渐显不断言动画帧（断言最终文本渲染）。
+  - `ChatSidebar`：消息历史（本地态 + 传入 history）；发送（**Enter 发送 / Shift+Enter 换行**，规约 §5.7）→ **事件到达即渲染**（tool_call 卡片"调用 generate…" + spinner、tool_result 就地更新成败、reply 气泡带渐显打字机动画 20ms/字——纯前端效果，W6）；done 事件 proposal_ids 非空 → 尾部 `accent` 链接"已入队 N 个提案 → 去确认"跳转 ProposalList；error 事件/网络失败 → 红条 + 重试；流进行中显示"中断"按钮（abort，Esc 同效）。
+- 测试锚：mock `sse.ts`（vi.mock）按序喂四事件 → 断言三类渲染块、跳转链接与中断按钮存在；Enter 触发发送且 Shift+Enter 不触发；reply 渐显不断言动画帧（断言最终文本渲染）。
 
 - [ ] **Step 1: 写失败测试** → **Step 2: 确认失败** → **Step 3: 最小实现** → **Step 4: 通过**
 - [ ] **Step 5: 提交**：`git commit -m "feat(web): chat sidebar consuming SSE stream with typing effect and proposal links (7.1)"`
@@ -454,8 +457,8 @@ async def test_proposal_read_surface(project):
 
 **Interfaces:**
 - Consumes: `GET /api/stats/*`（T7）。
-- Produces: PovChart 堆叠条形（按卷）；ForeshadowMap 时间线（planted_at → payoff_beat 区间条 + status 色）；RelationsGraph 邻接矩阵或圆环（节点+边，手写 SVG）；PacingBars 每章拍数/段落数双条形。入口：右栏工作区顶部"可视化"标签页（纯统计区，与提案面板互斥切换）。
-- 测试锚：每组件 mock 数据断言 SVG 元素数量/文本（如 ForeshadowMap 渲染 status=planted 的条数）。
+- Produces: PovChart 堆叠条形（按卷）；ForeshadowMap 时间线（planted_at → payoff_beat 区间条 + status 色：planted=`warn`/paid=`ok`/stale=`danger`）；RelationsGraph 邻接矩阵或圆环（节点+边，手写 SVG，语义色沿用 token）；PacingBars 每章拍数/段落数双条形。入口：右栏工作区顶部"可视化"标签页（纯统计区，与提案面板互斥切换）。图表文字/轴标签用 `text-muted`，数据主体用语义色（规约 §2）。
+- 测试锚：每组件 mock 数据断言 SVG 元素数量/文本（如 ForeshadowMap 渲染 status=planted 的条数与对应语义色类名）。
 
 - [ ] **Step 1: 写失败测试** → **Step 2: 确认失败** → **Step 3: 最小实现** → **Step 4: 通过**（vitest + build）
 - [ ] **Step 5: 提交**：`git commit -m "feat(web): pov/foreshadow/relations/pacing visualizations (7.1)"`
@@ -475,7 +478,8 @@ async def test_proposal_read_surface(project):
 
 - [ ] **Step 1: 补端到端测试与 README 行**（沿既有表格风格；覆盖 TC-SH-03/04/06/08）
 - [ ] **Step 2: 全量回归**：后端预期 ≥194 + 本计划新增全绿；前端 vitest 全绿；输出干净
-- [ ] **Step 3: 提交**：`git commit -m "docs: register web/llm test surfaces with TC-SH reverse index; e2e anchor"`
+- [ ] **Step 3: 视觉与易用性人工走查**（ui-design-01 §7 尾项清单）：骨架屏/焦点环/对比度（WCAG 工具核对 tokens）/三栏布局在 1280px 与 1920px 下的表现/暗色整体一致性；发现的问题记 ledger 随收尾修复波处置
+- [ ] **Step 4: 提交**：`git commit -m "docs: register web/llm test surfaces with TC-SH reverse index; e2e anchor"`
 
 ---
 
@@ -498,7 +502,7 @@ async def test_proposal_read_surface(project):
 
 1. worktree 执行先 `pip install -e . -e ./shell` + `cd web && npm install`（node ≥18；无 node 环境可跑 Task 1–8 后端全量，Task 9 起需 node）。
 2. Task 4 的异步测试基建：若 pytest-asyncio 未在依赖，shell/pyproject.toml 加 `pytest-asyncio` 并确认 `asyncio_mode` 配置——写在 Task 4 内一次搞定。
-3. Task 9 的 vite 工程用 `npm create vite@latest web -- --template react-ts` 起步后裁剪（删除默认演示页/CSS）；依赖仅 react/react-dom + vitest/@testing-library/react + @types/*，不加 UI 组件库与路由库。
+3. Task 9 的 vite 工程用 `npm create vite@latest web -- --template react-ts` 起步后裁剪（删除默认演示页/CSS）；依赖 = react/react-dom + tailwindcss/postcss/autoprefixer（W9）+ vitest/@testing-library/react + @types/*；**不加** UI 组件库与路由库（Tailwind 是原子 CSS 非组件库）。组件内禁裸十六进制色值，一律语义 token（ui-design-01 §6）。
 4. Task 10/11/12/13 的组件测试全部 vi.mock('./api')（不真起后端）；端到端只在 Task 14 后端侧做。
 5. 双库坑（conftest api fixture 在 tmp_path/api、core_conn 在 tmp_path 根）与 props 覆写时序（分析需 old 值必在事务前读）继续有效。
 6. SSE 调试：`curl -N -X POST localhost:8642/api/chat/stream -H "Content-Type: application/json" -d '{"message":"..."}'` 逐行看事件；测试断言用 httpx `client.stream`。
