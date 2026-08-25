@@ -1,6 +1,7 @@
 # src/snowel_core/api.py
 import json
 from pathlib import Path
+from typing import Iterator
 
 from .proposal.queue import ProposalQueue
 from .storage import db, events, lease, projector, queries, vec
@@ -318,3 +319,16 @@ class SnowelAPI:
         from .consistency import foreshadow
         return foreshadow.register(self, name, planted_at, origin,
                                    payoff_beat, note)
+
+    # 聊天代理（W1/W6）：JSON 指令循环；工具白名单不含确认类（§7.1 红线）
+    def chat(self, message: str, history=None, backend=None,
+             max_turns: int = 8) -> dict:
+        """非流式聚合门面：{"events": [除 done 外全部事件], "proposal_ids": [...]}。"""
+        from .llm import chat
+        return chat.run(self, message, history, backend, max_turns)
+
+    def chat_stream(self, message: str, history=None, backend=None,
+                    max_turns: int = 8) -> Iterator[dict]:
+        """流式门面：同步生成器逐事件 yield，末事件 done 携带 proposal_ids。"""
+        from .llm import chat
+        return chat.run_stream(self, message, history, backend, max_turns)
