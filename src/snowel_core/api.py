@@ -289,3 +289,14 @@ class SnowelAPI:
         """retcon 专属确认（冻结线豁免）：单事务双事件物化 + 事务后 C5 精确 stale。"""
         from .consistency import retcon
         return retcon.confirm_retcon(self, proposal_id)
+
+    # 伏笔注册（§4.8，TC-ON-14 手动 author 通道）：校验 → 建 kind="foreshadow"
+    # 提案（铁律 3），确认走 api.confirm（级联/冻结线随 confirm 接线自然生效）
+    def register_foreshadow(self, name: str, planted_at: str,
+                            origin: str = "author", payoff_beat: str | None = None,
+                            note: str = "") -> str:
+        """注册伏笔：校验 planted_at（已有 MicroBeat/Scene/Chapter 节点 id）
+        与 origin ∈ {"author", "ai"} 后建提案，返回 pid。"""
+        from .consistency import foreshadow
+        return foreshadow.register(self, name, planted_at, origin,
+                                   payoff_beat, note)
