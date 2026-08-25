@@ -47,6 +47,9 @@ def dependents(change: dict, conn: sqlite3.Connection) -> list[dict]:
     node 变更：①边反查——指向该节点的边（src/dst 任一端）+ 对端节点名入 message；
     ②正文引用——fts.search(节点名) 命中段落，refs 追加 "chapter:para_idx"。
     edge 变更：反查 src/dst 两端节点各自的边与正文引用（变更边自身不计）。
+    retraction 变更（C11 轻量下游级联提示）：fact 携带 {target, target_id}——
+    target=node 按被撤节点当前名反查边与正文；target=edge 反查该边两端
+    （被撤边自身不计）。
     只读物化与索引表不阻断；无任何引用 → 无 Violation。
     """
     fact = change.get("fact", {})
@@ -54,10 +57,25 @@ def dependents(change: dict, conn: sqlite3.Connection) -> list[dict]:
         ends = [fact.get("id")]
         search_names = {fact.get("name")} - {None}
         skip = None
+        retracted = False
     elif change.get("kind") == "edge":
         ends = [fact.get("src"), fact.get("dst")]
         search_names = set()
         skip = fact.get("id")  # 变更边自身不是"既有依赖"
+        retracted = False
+    elif change.get("kind") == "retraction":
+        tid = fact.get("target_id")
+        if fact.get("target") == "node":
+            ends, skip = [tid], None  # 撤销后行仍在（active=0），当前名可反查
+        elif fact.get("target") == "edge":
+            row = conn.execute("SELECT src, dst FROM edges WHERE id=?",
+                               (tid,)).fetchone()
+            ends = [row["src"], row["dst"]] if row else []
+            skip = tid  # 被撤边自身不是"下游依赖"
+        else:
+            return []
+        search_names = set()
+        retracted = True
     else:
         return []
     edges, peer_ids = {}, []
@@ -85,7 +103,8 @@ def dependents(change: dict, conn: sqlite3.Connection) -> list[dict]:
     refs = [*edges, *peer_ids, *paras]
     if not refs:
         return []
-    message = (f"牵动既有依赖：对端 {'、'.join(peer_names) or '无'}；"
+    prefix = "被撤回条目的下游引用提示" if retracted else "牵动既有依赖"
+    message = (f"{prefix}：对端 {'、'.join(peer_names) or '无'}；"
                f"正文段落命中 {len(paras)} 处")
     return [{"level": "minor", "rule": "dependents",
              "message": message, "refs": refs}]

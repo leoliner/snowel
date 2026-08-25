@@ -43,8 +43,9 @@ def after_commit(conn: sqlite3.Connection, facts: list[dict], seq: int,
                  tier: str) -> dict:
     """主事务后一站式跑档：analyze + finalize。
 
-    分析基线是调用时的生效集——主事务已物化覆写同键值时比对不到旧值
-    （此类写入点须用 analyze→主事务→finalize 两段式，见 api.confirm 接线）。
+    分析基线是调用时的生效集——主事务已物化覆写同键值时比对不到旧值；
+    需要变更前基线的写入点（confirm / extract）须拆 analyze→主事务→
+    finalize 两段式（见各自接线），本口仅供 retraction 写入点直用。
     """
     return finalize(conn, analyze(conn, facts, tier), seq, tier)
 

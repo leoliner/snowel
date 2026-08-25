@@ -73,14 +73,18 @@ def extract_and_writeback(api, chapter_id: str, backend: GenerationBackend,
     auto_seq = None
     cascade = None
     if low:
+        # 级联接线·前半（E5 四写入点之二，轻量档）：入典事务前只读分析——
+        # 基线=变更前生效值（projector 在事务内覆写 props，post-commit
+        # 分析对同键改值恒漏检，与 confirm 同缺陷类）
+        analysis = wiring.analyze(conn, low, "light")
         with transaction(conn):
             auto_seq = events.append_event(conn, "auto_canonized", {
                 "facts": low, "source": {"chapter_id": chapter_id,
                                          "hash": row["hash"]},
                 "appeared": appeared})
             projector.apply(conn)
-        # 级联接线（E5 四写入点之二）：auto 入典事务后轻量跑档（C11）
-        cascade = wiring.after_commit(conn, low, auto_seq, "light")
+        # 级联接线·后半：major 矛盾 diff 提案在事务后独立产出（P1/P2）
+        cascade = wiring.finalize(conn, analysis, auto_seq, "light")
     return {"chapter_id": chapter_id, "proposal_id": proposal_id,
             "auto_event_seq": auto_seq, "warnings": warnings,
             "appeared": appeared, "cascade": cascade,
