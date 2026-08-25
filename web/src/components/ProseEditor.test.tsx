@@ -219,6 +219,59 @@ describe('ProseEditor（ui-design-01 §5.2/§5.9 中栏正文编辑页）', () =
     expect(screen.getByLabelText('正文')).toHaveValue('第二章正文')
   })
 
+  // ---- final review fix 2（评审 Important：失败 GET 后旧章 data 残留新章下）----
+
+  it('正文加载失败：错误条渲染 + 编辑区清空（旧章正文不残留）+ 保存不可用', () => {
+    // c2 的 prose GET 失败（transient 500/断网）：text/savedText 必须重置为空
+    // 基线，否则旧章正文留在新章下、作者保存即错章覆盖
+    mockUseApi.mockImplementation((path: string) => {
+      if (path === '/api/chapters/c2/prose') {
+        return { data: null, loading: false, error: '正文加载失败（500）' }
+      }
+      if (path === '/api/chapters/c1/prose') {
+        return { data: { chapter_id: 'c1', prose: '第一章正文' }, loading: false, error: null }
+      }
+      if (path === '/api/flow') return { data: flow, loading: false, error: null }
+      if (path === '/api/reconcile') return { data: [], loading: false, error: null }
+      return { data: null, loading: false, error: null }
+    })
+    render(<ProseEditor />)
+    expect(screen.getByLabelText('正文')).toHaveValue('第一章正文')
+    fireEvent.click(screen.getByText('第二章'))
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('正文加载失败（500）')
+    // 编辑区为空基线：旧章正文不残留
+    expect(screen.getByLabelText('正文')).toHaveValue('')
+    // 空基线 → 无未保存圆点 → 保存按钮禁用（防旧内容被存进新章）
+    expect(screen.queryByTestId('unsaved-dot')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存为提案' })).toBeDisabled()
+  })
+
+  it('错误条"重试"：重拉正文成功后恢复基线，错误条消失', async () => {
+    mockUseApi.mockImplementation((path: string, refreshKey = 0) => {
+      if (path === '/api/chapters/c2/prose') {
+        return refreshKey === 0
+          ? { data: null, loading: false, error: '正文加载失败（500）' }
+          : { data: { chapter_id: 'c2', prose: '第二章正文' }, loading: false, error: null }
+      }
+      if (path === '/api/chapters/c1/prose') {
+        return { data: { chapter_id: 'c1', prose: '第一章正文' }, loading: false, error: null }
+      }
+      if (path === '/api/flow') return { data: flow, loading: false, error: null }
+      if (path === '/api/reconcile') return { data: [], loading: false, error: null }
+      return { data: null, loading: false, error: null }
+    })
+    render(<ProseEditor />)
+    fireEvent.click(screen.getByText('第二章'))
+    expect(screen.getByRole('alert')).toHaveTextContent('正文加载失败（500）')
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('正文')).toHaveValue('第二章正文')
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('unsaved-dot')).not.toBeInTheDocument()
+  })
+
   it('保存/抽取在途切章：过期响应丢弃，新章无幽灵圆点/无错章提示（F3）', async () => {
     mockPaths({
       '/api/flow': flow,

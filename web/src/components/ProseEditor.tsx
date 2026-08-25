@@ -61,7 +61,10 @@ export default function ProseEditor({
   const prosePath = selectedId
     ? `/api/chapters/${selectedId}/prose`
     : '/api/chapters/none/prose'
-  const { data: prose, loading: proseLoading } = useApi<ChapterProse>(prosePath)
+  // final review fix 2：proseError 消费 + proseRetry（错误条"重试"重拉）并入 key
+  const [proseRetry, setProseRetry] = useState(0)
+  const { data: prose, loading: proseLoading, error: proseError } =
+    useApi<ChapterProse>(prosePath, proseRetry)
 
   const volumes = data?.volumes ?? []
   const chapters = volumes.flatMap((v) => v.chapters)
@@ -117,14 +120,20 @@ export default function ProseEditor({
     setExtractResult(null)
   }, [selectedId])
 
-  // 正文加载（fix 1）：选中章正文到达后初始化 text/savedText 基线（savedText
-  // 从"空串"改为"已加载正文"——作者打开既有正文的章不再默认覆盖）
+  // 正文加载（fix 1 + final review fix 2）：选中章正文到达后初始化 text/savedText
+  // 基线（savedText 从"空串"改为"已加载正文"——作者打开既有正文的章不再默认覆盖）。
+  // 加载失败（或 data 非当前章——切章过渡帧/哨兵）→ 清空基线：useApi 失败不清
+  // data，旧章正文若残留新章下，作者保存即错章覆盖（评审 finding 2）
   useEffect(() => {
-    if (!prose || prose.chapter_id !== selectedId) return
+    if (proseError || !prose || prose.chapter_id !== selectedId) {
+      setText('')
+      setSavedText('')
+      return
+    }
     const loaded = prose.prose ?? ''
     setText(loaded)
     setSavedText(loaded)
-  }, [prose, selectedId])
+  }, [prose, proseError, selectedId])
 
   const doSelect = (ch: Chapter) => {
     setSelectedId(ch.id)
@@ -313,6 +322,25 @@ export default function ProseEditor({
             </div>
           ) : (
             <>
+              {/* 正文加载失败（final review fix 2）：错误条 + 重试；编辑区为空
+                  基线（text/savedText 已清空），防旧章正文被误存进新章 */}
+              {proseError && (
+                <div
+                  role="alert"
+                  className="mb-3 flex flex-wrap items-center gap-2 rounded-input bg-danger/15 px-3 py-2 text-sm text-danger"
+                >
+                  <span className="min-w-0 flex-1">
+                    正文加载失败：{proseError}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setProseRetry((n) => n + 1)}
+                    className="shrink-0 rounded-chip border border-danger/40 px-2 py-0.5 text-xs hover:bg-danger/20"
+                  >
+                    重试
+                  </button>
+                </div>
+              )}
               <textarea
                 id="prose-text"
                 aria-label="正文"

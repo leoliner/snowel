@@ -1,7 +1,9 @@
 # tests/shell/test_web_server.py
 """Web 壳（W2/W5）：app 工厂项目绑定、租约会话、写守卫 409、静态 SPA serve、
 Task 6 写 API 面（确认/否决/改写/生成/封卷/retcon/伏笔/回写/修订）。"""
+import asyncio
 import json
+import time
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -196,6 +198,43 @@ def test_web_rejects_non_project(tmp_path):
     res = CliRunner().invoke(app, ["web", "--project", str(tmp_path)])
     assert res.exit_code == 1
     assert "snowel init" in res.output
+
+
+# ---- final review fix 1（评审 Important：C10 租约无心跳，30s 静默过期）----
+
+async def test_heartbeat_readonly_flip_on_lease_stolen(project):
+    """C10 修复锚：Web 心跳线程（独立连接 renew）检测失租 → 翻只读 + holder
+    快照，写端点 409，关死双写窗口（L5 语义，test_project 同款手法）。
+    用可参数化 stale_after 短窗实测，不睡真实 30s。"""
+    app = create_app(str(project), stale_after=0.5)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        sess = (await c.get("/api/session")).json()
+        assert sess["readonly"] is False and sess["holder"] is None
+        # 模拟持租进程僵死：心跳戳拨回过去 → 他端（MCP/CLI 模拟）抢租
+        thief = SnowelAPI.open(project)
+        try:
+            thief._conn.execute("UPDATE lease SET heartbeat_ts=0")
+            assert thief.acquire_lease("mcp:thief", stale_after=0.5)
+            # 心跳 interval ≈ stale_after/3 ≈ 0.167s：≤3s 内必须发现失租翻只读
+            deadline = time.monotonic() + 3
+            while True:
+                sess = (await c.get("/api/session")).json()
+                if sess["readonly"]:
+                    break
+                assert time.monotonic() < deadline, "心跳未在 3s 内翻只读"
+                await asyncio.sleep(0.05)
+            assert sess["holder"] == "mcp:thief"     # holder 快照 = 新持租者
+            # 失租后写端点统一 409（只读守卫读的是翻转后的布尔）
+            r = await c.post("/api/prose", json={
+                "chapter_id": "ch1", "content": "错章覆盖"})
+            assert r.status_code == 409 and "mcp:thief" in r.json()["detail"]
+        finally:
+            thief.close()
+    # 收尾：停心跳线程（ASGITransport 不送 lifespan 消息，防线程跨测试泄漏）
+    app.state._heartbeat_stop.set()
+    if app.state._heartbeat_thread is not None:
+        app.state._heartbeat_thread.join(timeout=5)
 
 
 # ---- Task 6：写 API 面（确认/否决/改写/生成/封卷/retcon/伏笔/回写/修订）----

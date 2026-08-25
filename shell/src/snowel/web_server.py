@@ -3,16 +3,18 @@
 
 每 server 进程绑定一个项目（C4/TC-SH-06）；启动抢写租约 `web:<pid>`（C10，
 W5），失败降级只读会话（/api/session 暴露 readonly/holder，写端点统一 409）。
-只转发 api 门面，零领域逻辑（design §10）。
+持写租约时启动心跳线程：独立连接每 stale_after/3 秒 renew（L5：失租即翻只读
+并快照新 holder，关死双写窗口）。只转发 api 门面，零领域逻辑（design §10）。
 
 open + acquire 在工厂内同步完成：httpx ASGITransport 不发送 lifespan 消息
-（测试锚定的是工厂后的状态），uvicorn 生产路径经 lifespan shutdown 释放
-租约并关闭连接；测试中资源随 app 对象 GC 自动释放。
+（测试锚定的是工厂后的状态），uvicorn 生产路径经 lifespan shutdown 停心跳、
+释放租约并关闭连接；测试中资源随 app 对象 GC 自动释放。
 """
 from __future__ import annotations
 
 import json
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -26,12 +28,34 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.types import Scope
 
-from snowel_core.api import SnowelAPI
+from snowel_core.api import ProjectNotFoundError, SnowelAPI
 from snowel_core.consistency.seal import SealedVolumeError
 from snowel_core.proposal.queue import ProposalStateError
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # 源码布局：shell/src/snowel/ -> 仓库根
 _DEFAULT_DIST = _REPO_ROOT / "web" / "dist"
+
+
+def _heartbeat_loop(project_root: Path, holder: str, interval: float,
+                    stop: threading.Event, on_lost) -> None:
+    """心跳线程（C10 续租 / L5 失租翻只读）：独立连接 renew（sqlite 连接
+    不跨线程共用，连接在本线程内打开关闭）；失租/异常 → on_lost 后自停。
+    进程死亡 = 心跳停止，租约经 stale_after 过期后他端可抢（无永久锁死）。"""
+    try:
+        api = SnowelAPI.open(project_root)
+    except ProjectNotFoundError:
+        return
+    try:
+        while not stop.wait(interval):
+            try:
+                ok = api.renew_lease(holder)
+            except Exception:
+                ok = False  # L7：renew 异常（库文件锁等）按失租处理，不给异常续命
+            if not ok:
+                on_lost(api)
+                break
+    finally:
+        api.close()
 
 
 class _SpaStaticFiles(StaticFiles):
@@ -97,24 +121,44 @@ def _sse(event: dict) -> str:
 
 def create_app(project_root: str | Path,
                static_dir: str | Path | None = None,
-               llm_backend=None) -> FastAPI:
-    """app 工厂：绑定项目、抢写租约，挂 app.state；web/dist 存在则挂 /。
+               llm_backend=None,
+               stale_after: float = 30.0) -> FastAPI:
+    """app 工厂：绑定项目、抢写租约、持锁则起心跳线程，挂 app.state；
+    web/dist 存在则挂 /。
 
     static_dir 缺省取 <仓库根>/web/dist（源码布局解析），缺失则跳过挂载
     （无 node 环境测试不破）。llm_backend 为测试注入点（FakeBackend），
-    缺省 None → 写端点透传给 core，由其按配置解析默认 backend。
+    缺省 None → 写端点透传给 core，由其按配置解析默认 backend。stale_after
+    为租约过期窗（与 core lease.acquire 同语义，测试注入短窗实测心跳）。
     """
     root = Path(project_root)
     api = SnowelAPI.open(root)
     holder = f"web:{os.getpid()}"
-    got = api.acquire_lease(holder)
+    got = api.acquire_lease(holder, stale_after=stale_after)
     app = FastAPI(title="Snowel", lifespan=_lifespan)
     app.state.project_root = root
     app.state.api = api
     app.state.readonly = not got
     app.state.holder = None if got else api.current_lease_holder()
     app.state._lease_holder = holder if got else None  # shutdown 定向释放
+    app.state._heartbeat_stop = threading.Event()
+    app.state._heartbeat_thread = None
     app.state.llm_backend = llm_backend
+
+    if got:
+        stop = app.state._heartbeat_stop
+
+        def _on_lost(api2: SnowelAPI) -> None:
+            # L5：失租即翻只读，关死双写窗口；holder 快照 = 当前持租者
+            app.state.readonly = True
+            app.state.holder = api2.current_lease_holder()
+            stop.set()
+
+        app.state._heartbeat_thread = threading.Thread(
+            target=_heartbeat_loop,
+            args=(root, holder, max(stale_after / 3, 0.05), stop, _on_lost),
+            daemon=True)
+        app.state._heartbeat_thread.start()
 
     # ---- 统一错误映射（Task 6，全写端点共用）：core 校验错误 → 400，
     # 队列状态机错误 → 409；missing pid 由 _proposal 统一 404
@@ -454,10 +498,17 @@ async def _lifespan(app: FastAPI):
     try:
         yield
     finally:
-        # uvicorn 退出路径：释放租约（仅写会话）并关闭连接；测试中 app 被 GC 时
-        # sqlite 连接随之关闭，无需在此兜底
+        # uvicorn 退出路径：先停心跳（Event + join），再释放租约（仅写会话，
+        # 失租后为 no-op）并关闭连接；测试中 app 被 GC 时 sqlite 连接随之
+        # 关闭，无需在此兜底
+        stop = getattr(app.state, "_heartbeat_stop", None)
+        if stop is not None:
+            stop.set()
+        thread = getattr(app.state, "_heartbeat_thread", None)
+        if thread is not None:
+            thread.join(timeout=5)
         api = getattr(app.state, "api", None)
         if api is not None:
-            if app.state._lease_holder:
+            if not app.state.readonly and app.state._lease_holder:
                 api.release_lease(app.state._lease_holder)
             api.close()
