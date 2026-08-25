@@ -154,6 +154,17 @@ class SnowelAPI:
             facts = [f for f in facts if f.get("id") not in set(exclude)]
         pre_violations = None
         if p["kind"] not in ("revision", "retcon") and facts:
+            # 冻结线（C7）：变更落已封卷内设定 → 事务前拦截，提示走显式 retcon；
+            # retcon 专属流程豁免（Task 8 的确认路径不走此处）；revision 无事实语义
+            from .consistency import seal
+            for f in facts:
+                if f.get("fact") == "node":
+                    vid = seal.sealed_volume_of(
+                        self._conn, f.get("id"),
+                        f.get("props", {}).get("address"))
+                    if vid is not None:
+                        raise seal.SealedVolumeError(
+                            f"卷 {vid} 已封卷，设定改动须走显式 retcon")
             from .consistency import wiring
             pre_violations = wiring.analyze(self._conn, facts, "full")
         seq = self.proposals.confirm(proposal_id, exclude=exclude)
@@ -240,3 +251,19 @@ class SnowelAPI:
                     reason: str | None = None) -> dict:
         from .writeback import review
         return review.reject_auto(self._conn, entries, reason=reason)
+
+    # 封卷（C7）与冻结线数据面（TC-CC-05/06/08）
+    def seal(self, volume_id: str) -> int:
+        """封卷：校验 Volume 节点存在且未封 → 追加 volume_sealed 事件并物化。
+
+        已封卷拒绝（ValueError）；封卷后设定改动被冻结线拦截，须走显式 retcon。
+        """
+        from .consistency import seal
+        return seal.seal_volume(self._conn, volume_id)
+
+    def sealed_volumes(self) -> list:
+        """已封卷列表（TC-CC-05 警告面数据源）：壳/Web 与 flow_state 卷树
+        对减即未封卷集合——未封卷内写作仅警告不阻断（冻结线只拦已封卷）。"""
+        return [dict(r) for r in self._conn.execute(
+            "SELECT volume_id, sealed_seq FROM sealed_volumes "
+            "ORDER BY sealed_seq")]
