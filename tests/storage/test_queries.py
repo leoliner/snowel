@@ -126,6 +126,31 @@ def test_descendants_kinds_and_validity(core_conn):  # L4
     assert len(queries.descendants(core_conn, "n1")) == 2
 
 
+def test_edges_of_active_only(core_conn):  # L17
+    _confirm(core_conn, [
+        {"fact": "node", "id": "a", "types": ["Character"], "name": "a", "props": {}},
+        {"fact": "node", "id": "b", "types": ["Concept"], "name": "b",
+         "props": {"address": {"volume": 1}}},
+        {"fact": "node", "id": "v1", "types": ["Volume"], "name": "卷一",
+         "props": {"address": {"volume": 1}}},
+        {"fact": "edge", "id": "e1", "src": "a", "dst": "b", "kind": "REQUIRES",
+         "props": {}},
+    ])
+    with db.transaction(core_conn):
+        events.append_event(core_conn, "retraction",
+                            {"target": "node", "target_id": "b"})
+    projector.apply(core_conn)
+    assert queries.edges_of(core_conn, "a") == []            # 默认仅活跃
+    assert len(queries.edges_of(core_conn, "a", active_only=False)) == 1
+    # get_node 同口径
+    assert queries.get_node(core_conn, "b") is None
+    assert queries.get_node(core_conn, "b", active_only=False) is not None
+    # seal 的前 canon 读取不受统一影响（L 前修复不回退）：b 已撤回但带 address，
+    # 仍命中归属卷 v1——"行被读到"与"行被 active 过滤"从此可区分（评审修复）
+    from snowel_core.consistency import seal
+    assert seal.volume_id_of(core_conn, "b") == "v1"
+
+
 def test_graph_stats_counts_and_types(tmp_path):
     # 本文件无 conn fixture，沿用 _mk(tmp_path) 建库（断言与 brief 一致）
     conn = _mk(tmp_path)

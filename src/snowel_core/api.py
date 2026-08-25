@@ -45,14 +45,16 @@ class SnowelAPI:
     def state_at(self, story_order: int):
         return queries.state_at(self._conn, story_order)
 
-    def get_node(self, node_id):
-        return queries.get_node(self._conn, node_id)
+    def get_node(self, node_id, active_only=True):
+        """节点反查（L17：默认仅活跃实体；读撤回行显式传 active_only=False）。"""
+        return queries.get_node(self._conn, node_id, active_only)
 
     def find_nodes(self, name=None, type=None):
         return queries.find_nodes(self._conn, name, type)
 
-    def edges_of(self, node_id, direction="both"):
-        return queries.edges_of(self._conn, node_id, direction)
+    def edges_of(self, node_id, direction="both", active_only=True):
+        """关联边反查（L17：默认仅两端均活跃的边；读撤回行显式传 active_only=False）。"""
+        return queries.edges_of(self._conn, node_id, direction, active_only)
 
     def descendants(self, node_id, kinds=None, max_depth=10):
         return queries.descendants(self._conn, node_id, kinds, max_depth)
