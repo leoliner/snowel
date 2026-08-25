@@ -239,6 +239,29 @@ async def test_confirm_returns_seq_and_cascade(project):
         assert (await c.post("/api/proposals/nope/confirm")).status_code == 404
 
 
+async def test_reject_records_reason(project):
+    # 否决接线锚（评审 finding）：200 {"ok": True} + 状态落库 + 事件携带 reason
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("t", {"facts": []})
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post(f"/api/proposals/{pid}/reject",
+                         json={"reason": "测试否决"})
+        assert r.status_code == 200 and r.json() == {"ok": True}
+    other = SnowelAPI.open(project)          # TC-SH-03 式独立句柄（共库）
+    try:
+        assert other.proposals.get(pid)["status"] == "rejected"
+        ev = other._conn.execute(
+            "SELECT payload FROM events WHERE kind='proposal_rejected'"
+        ).fetchone()
+        assert json.loads(ev["payload"]) == {
+            "proposal_id": pid, "reason": "测试否决"}
+    finally:
+        other.close()
+
+
 async def test_confirm_retcon_roundtrip(project):
     # 壳零分派（铁律 1）：retcon 提案走 confirm → core ValueError → 400；
     # confirm_retcon 端点返回 seq + cascade（propose 时同步进实例的影响清单，
