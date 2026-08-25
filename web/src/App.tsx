@@ -1,6 +1,7 @@
 // 三栏布局壳（ui-design-01 §3）：顶栏 + 左流程树 / 中正文 / 右工作区+聊天。
 // 子栏内容：T10 FlowTree / ProposalList / ProposalPanel / GenerateForm 已接线，
-// 中栏 ProseEditor（T11）与聊天 ChatSidebar（T12）为占位 stub；
+// 中栏 ProseEditor（T11，选中章经 App 状态与 FlowTree onSelectChapter 联动）
+// 与聊天 ChatSidebar（T12）为占位 stub；
 // 数据获取统一走 useApi（§5.1 骨架屏 / §5.3 错误红条）。
 import { useState } from 'react'
 import { useApi } from './api'
@@ -10,6 +11,7 @@ import FlowTree from './components/FlowTree'
 import ProposalList from './components/ProposalList'
 import ProposalPanel from './components/ProposalPanel'
 import GenerateForm from './components/GenerateForm'
+import ProseEditor from './components/ProseEditor'
 
 function Skeleton({ className = 'h-4' }: { className?: string }) {
   return <div data-testid="skeleton" className={`skeleton ${className}`} />
@@ -19,12 +21,18 @@ export default function App() {
   const session = useApi<Session>('/api/session')
   const [chatCollapsed, setChatCollapsed] = useState(false)
   const [selectedPid, setSelectedPid] = useState<string | null>(null)
+  // 当前选中章（T11）：FlowTree / ProseEditor 章节点击双端经此联动，顶栏展示
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null)
 
   const data = session.data
   const readonly = data?.readonly ?? false
-  // 当前卷·章占位：取 flow 首个卷章（T11 正文页接管真实选择）
-  const currentVolume = data?.flow.volumes[0]
-  const currentChapter = currentVolume?.chapters[0]
+  // 当前卷·章：优先选中章所在卷，未选中回落 flow 首个卷章
+  const selectedVol = data?.flow.volumes.find(
+    (v) => v.chapters.some((c) => c.id === selectedChapterId))
+  const currentVolume = selectedVol ?? data?.flow.volumes[0]
+  const currentChapter =
+    currentVolume?.chapters.find((c) => c.id === selectedChapterId)
+    ?? currentVolume?.chapters[0]
 
   return (
     <div className="flex h-screen flex-col bg-base text-primary">
@@ -76,11 +84,14 @@ export default function App() {
               <Skeleton />
             </div>
           ) : (
-            <FlowTree readonly={readonly} />
+            <FlowTree
+              readonly={readonly}
+              onSelectChapter={(ch) => setSelectedChapterId(ch.id)}
+            />
           )}
         </aside>
 
-        {/* 中栏：正文编辑容器（T11） */}
+        {/* 中栏：正文编辑容器（T11 ProseEditor） */}
         <section
           data-testid="col-prose"
           className="min-w-[480px] flex-1 overflow-y-auto bg-base"
@@ -95,7 +106,11 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <div className="p-6 text-sm text-muted">正文编辑区（T11 实现）</div>
+            <ProseEditor
+              readonly={readonly}
+              chapterId={selectedChapterId}
+              onSelectChapter={(ch) => setSelectedChapterId(ch.id)}
+            />
           )}
         </section>
 

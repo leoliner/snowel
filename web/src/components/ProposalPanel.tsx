@@ -24,7 +24,8 @@ function fmt(v: unknown): string {
   return typeof v === 'string' ? v : JSON.stringify(v)
 }
 
-function ViolationList({ violations }: { violations: Violation[] }) {
+// 级联违规列表（§5.5 分色渲染，T11 ProseEditor 抽取面板复用）
+export function ViolationList({ violations }: { violations: Violation[] }) {
   return (
     <ul className="flex flex-col gap-1">
       {violations.map((v, i) => (

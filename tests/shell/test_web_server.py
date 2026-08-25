@@ -148,6 +148,8 @@ async def test_readonly_session_reads_freely(project):
         assert (await c.get("/api/flow")).status_code == 200
         assert (await c.get("/api/proposals")).status_code == 200
         assert (await c.get("/api/audit")).status_code == 200
+        # T11 fix 1：按章正文读取无写守卫（TC-SH-04 读面不限）
+        assert (await c.get("/api/chapters/ch1/prose")).status_code == 200
     api.release_lease("mcp:test-holder")
     api.close()
 
@@ -722,3 +724,61 @@ async def test_chat_stream_error_event_closes_stream(project):
     events = _sse_events(body)
     assert events[-1]["type"] == "error"
     assert "pop from empty list" in events[-1]["text"]
+
+
+# ---- Task 11（T11）：正文保存端点（POST /api/prose，一比一 prose 提案创建）----
+
+async def test_prose_endpoint(project):
+    """正文保存锚：proposals.create("prose", {chapter_id, content}) → pending
+    提案（payload 一比一）；缺字段 → 400（_require 统一口径）。"""
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/prose", json={
+            "chapter_id": "ch1", "content": "段一\n\n段二"})
+        assert r.status_code == 200
+        pid = r.json()["proposal_id"]
+        assert pid
+        # 缺字段 → 400（body 空 / 缺 content 同口径）
+        assert (await c.post("/api/prose", json={})).status_code == 400
+        assert (await c.post("/api/prose", json={
+            "chapter_id": "ch1"})).status_code == 400
+    check = SnowelAPI.open(project)          # 独立句柄读回（TC-SH-03 式共库）
+    try:
+        row = check.proposals.get(pid)
+        assert row["kind"] == "prose" and row["status"] == "pending"
+        assert json.loads(row["payload"]) == {
+            "chapter_id": "ch1", "content": "段一\n\n段二"}
+    finally:
+        check.close()
+
+
+async def test_prose_endpoint_readonly_409(project):
+    # 正文保存是写路径：只读会话 /api/prose → 409（守卫同 T6 写面）
+    api = SnowelAPI.open(project)
+    api.acquire_lease("mcp:test-holder")
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/prose", json={
+            "chapter_id": "ch1", "content": "正文"})
+        assert r.status_code == 409 and "只读" in r.json()["detail"]
+    api.release_lease("mcp:test-holder")
+    api.close()
+
+
+async def test_chapter_prose_endpoint(project):
+    """按章正文加载面（T11 fix 1）：有镜像行 → 全文；无行 → prose null（200，
+    前端空白可输入）。"""
+    seed = SnowelAPI.open(project)
+    mirror.write_prose(seed._conn, project, "ch1", "段一\n\n段二")
+    seed.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.get("/api/chapters/ch1/prose")
+        assert r.status_code == 200
+        assert r.json() == {"chapter_id": "ch1", "prose": "段一\n\n段二"}
+        r2 = await c.get("/api/chapters/nope/prose")
+        assert r2.status_code == 200
+        assert r2.json() == {"chapter_id": "nope", "prose": None}

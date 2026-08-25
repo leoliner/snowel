@@ -286,6 +286,16 @@ def create_app(project_root: str | Path,
         chapter_id = api.reregister_prose(_require(body, "proposal_id"))
         return {"chapter_id": chapter_id}
 
+    @app.post("/api/prose", dependencies=[Depends(_require_write)])
+    async def prose(request: Request, body: dict | None = None) -> dict[str, Any]:
+        """正文保存（T11）：一比一 prose 草稿提案创建（确认走既有 confirm，
+        C1 确认即代写文件）。"""
+        api = request.app.state.api
+        pid = api.proposals.create("prose", {
+            "chapter_id": _require(body, "chapter_id"),
+            "content": _require(body, "content")})
+        return {"proposal_id": pid}
+
     @app.post("/api/revision", dependencies=[Depends(_require_write)])
     async def revision(request: Request,
                        body: dict | None = None) -> dict[str, Any]:
@@ -405,6 +415,13 @@ def create_app(project_root: str | Path,
         """正文镜像对账状态（changed/missing 清单，dry-run：纯状态读不写库，
         只读会话照常可查——F2）。"""
         return request.app.state.api.reconcile_prose(dry_run=True)
+
+    @app.get("/api/chapters/{chapter_id}/prose")
+    async def chapter_prose(request: Request, chapter_id: str) -> dict:
+        """按章正文（T11 加载面）：镜像水化全文；无行 → prose null（200，
+        前端空白可输入）。只读端点不挂写守卫。"""
+        api = request.app.state.api
+        return {"chapter_id": chapter_id, "prose": api.chapter_prose(chapter_id)}
 
     @app.get("/api/sealed")
     async def sealed(request: Request) -> list[dict]:

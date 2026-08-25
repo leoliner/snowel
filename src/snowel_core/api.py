@@ -97,6 +97,13 @@ class SnowelAPI:
         return [dict(r) for r in self._conn.execute(
             "SELECT chapter_id, prose FROM chapter_prose ORDER BY chapter_id")]
 
+    # 按章正文（T11 加载面）：镜像水化全文，无行 → None
+    def chapter_prose(self, chapter_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT prose FROM chapter_prose WHERE chapter_id=?",
+            (chapter_id,)).fetchone()
+        return row["prose"] if row is not None else None
+
     # 流程状态（FL-03）
     def flow_state(self) -> dict:
         from .flow import state
