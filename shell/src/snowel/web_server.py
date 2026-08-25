@@ -21,8 +21,9 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 # 用 starlette 基类而非 fastapi 子类：StaticFiles 抛的是基类，
 # 以子类捕获（except fastapi.HTTPException）会漏接
+from starlette.concurrency import iterate_in_threadpool
 from starlette.exceptions import HTTPException
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.types import Scope
 
 from snowel_core.api import SnowelAPI
@@ -72,6 +73,26 @@ def _require(body: dict | None, key: str):
     if not val:
         raise ValueError(f"{key} 必填")
     return val
+
+
+def _validate_history(history) -> list[dict] | None:
+    """聊天历史快速校验（进流前 400）：条目须为 dict 且 role ∈ {user, assistant}、
+    text 为 str；None/空数组合法（core 侧不做此形状校验）。"""
+    if history is None:
+        return None
+    if not isinstance(history, list):
+        raise ValueError("history 必须是数组")
+    for entry in history:
+        if (not isinstance(entry, dict)
+                or entry.get("role") not in ("user", "assistant")
+                or not isinstance(entry.get("text"), str)):
+            raise ValueError("history 条目须为 {role: user|assistant, text: str}")
+    return history
+
+
+def _sse(event: dict) -> str:
+    """SSE 事件编码：每事件一行 `data: {json}\n\n`（ensure_ascii=False 沿 house style）。"""
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 def create_app(project_root: str | Path,
@@ -274,6 +295,46 @@ def create_app(project_root: str | Path,
                                    _require(body, "new_address"),
                                    reason=(body or {}).get("reason", ""))
         return {"proposal_id": pid}
+
+    # ---- 聊天代理（Task 8/W6）：SSE 流式 + 非流式聚合，backend 注入同 T6 ----
+    # 进流前统一校验（空 message/畸形 history → 400）；触 db 端点保持 async def
+    # （T4 实证：sync def 进线程池 → 跨线程用 sqlite 崩溃）
+    @app.post("/api/chat/stream", dependencies=[Depends(_require_write)])
+    async def chat_stream(request: Request,
+                          body: dict | None = None) -> StreamingResponse:
+        """聊天 SSE 流：逐事件 `data: {json}\n\n`，done 事件后流自然结束。
+
+        同步 core 生成器经 iterate_in_threadpool 逐事件拉取（W6）；流内 core
+        异常 → 一条 error 事件后收束（不吊死连接）；客户端断开（GeneratorExit）
+        原样透传，已入队提案保留。
+        """
+        api = request.app.state.api
+        message = _require(body, "message")
+        history = _validate_history((body or {}).get("history"))
+        backend = request.app.state.llm_backend or None
+
+        async def _event_stream():
+            try:
+                async for event in iterate_in_threadpool(
+                        api.chat_stream(message, history, backend=backend)):
+                    yield _sse(event)
+            except GeneratorExit:
+                raise
+            except Exception as e:
+                yield _sse({"type": "error", "text": str(e)})
+
+        return StreamingResponse(_event_stream(), media_type="text/event-stream")
+
+    @app.post("/api/chat", dependencies=[Depends(_require_write)])
+    async def chat(request: Request,
+                   body: dict | None = None) -> dict[str, Any]:
+        """非流式聚合聊天（W6 兼容口，测试与简单客户端用）：一比一 api.chat，
+        events 为除 done 外全部事件 + proposal_ids。"""
+        api = request.app.state.api
+        message = _require(body, "message")
+        history = _validate_history((body or {}).get("history"))
+        return api.chat(message, history,
+                        backend=request.app.state.llm_backend or None)
 
     # ---- 只读 API 面（Task 5）：全部 GET，一比一转发 api 门面，pid 缺失统一 404。
     # 只读降级读不限（TC-SH-04）——不挂写守卫；db 触碰端点一律 async def

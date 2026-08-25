@@ -602,3 +602,123 @@ async def test_stats_invalid_name_404(project):
     async with AsyncClient(transport=ASGITransport(app=app),
                            base_url="http://t") as c:
         assert (await c.get("/api/stats/nope")).status_code == 404
+
+
+# ---- Task 8（W6）：聊天端点（SSE 流式 + 非流式聚合）----
+
+def _chat_queue():
+    """两轮队列（T3 Ruling：generate 内部再调 backend，故工具 JSON 后补生成稿）：
+    工具调用 → 生成稿 → 回复 JSON。"""
+    return [
+        json.dumps({"tool": "generate",
+                    "args": {"artifact_type": "premise",
+                             "extra": {"notes": "无限流"}}}, ensure_ascii=False),
+        _llm_resp("生成的设定"),
+        json.dumps({"reply": "已生成前提提案，请到面板确认。"}, ensure_ascii=False),
+    ]
+
+
+def _sse_events(body: str) -> list[dict]:
+    """SSE 响应体 → 事件序列（剥 "data: " 前缀，按空行分隔）。"""
+    return [json.loads(line[len("data: "):])
+            for line in body.split("\n\n") if line.startswith("data: ")]
+
+
+async def test_chat_stream_sse_events(project):
+    # 两轮（tool + reply）→ 恰 4 条 data 行：tool_call/tool_result/reply/done，
+    # done 携带非空 proposal_ids（工具已产出）；history 进提示词
+    fake = FakeBackend(_chat_queue())
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        async with c.stream("POST", "/api/chat/stream", json={
+                "message": "帮我想个无限流前提",
+                "history": [{"role": "user", "text": "上一轮对话"},
+                            {"role": "assistant", "text": "收到"}]}) as r:
+            assert r.status_code == 200
+            assert r.headers["content-type"].startswith("text/event-stream")
+            body = (await r.aread()).decode()
+    events = _sse_events(body)
+    assert [e["type"] for e in events] == [
+        "tool_call", "tool_result", "reply", "done"]
+    assert events[0]["tool"] == "generate"
+    assert events[1]["ok"] is True and "提案" in events[1]["summary"]
+    assert events[3]["proposal_ids"]                   # 非空
+    assert "无限流" in fake.calls[0]["prompt"]          # 消息与 history 进提示词
+    assert "上一轮对话" in fake.calls[0]["prompt"]
+
+
+async def test_chat_aggregate_endpoint(project):
+    # 非流式聚合：events 除 done 外全部 + proposal_ids（与流式同源）
+    fake = FakeBackend(_chat_queue())
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/chat", json={"message": "帮我想个无限流前提"})
+        assert r.status_code == 200
+        body = r.json()
+    assert [e["type"] for e in body["events"]] == [
+        "tool_call", "tool_result", "reply"]
+    assert body["proposal_ids"]                        # 非空
+    assert all(e["type"] != "done" for e in body["events"])
+
+
+async def test_chat_empty_message_400(project):
+    # 空 message → 400（进流前校验；非流式同）
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        assert (await c.post("/api/chat", json={"message": ""})).status_code == 400
+        async with c.stream("POST", "/api/chat/stream",
+                            json={"message": ""}) as r:
+            assert r.status_code == 400
+
+
+async def test_chat_malformed_history_400(project):
+    # history 条目须为 {role: user|assistant, text: str}；畸形 → 400（两端点同）
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        bad = ["not-a-dict",
+               [{"role": "user"}],
+               [{"role": "system", "text": "x"}],
+               [{"role": "user", "text": 42}]]
+        for h in bad:
+            r = await c.post("/api/chat", json={"message": "hi", "history": h})
+            assert r.status_code == 400, h
+            async with c.stream("POST", "/api/chat/stream",
+                                json={"message": "hi", "history": h}) as rs:
+                assert rs.status_code == 400, h
+
+
+async def test_chat_readonly_session_409(project):
+    # 写守卫同 T6：聊天代理工具可产提案（写路径），只读会话统一 409（C10）
+    api = SnowelAPI.open(project)          # 抢占租约：模拟他端持锁
+    api.acquire_lease("mcp:test-holder")
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/chat", json={"message": "hi"})
+        assert r.status_code == 409 and "只读" in r.json()["detail"]
+        async with c.stream("POST", "/api/chat/stream",
+                            json={"message": "hi"}) as rs:
+            assert rs.status_code == 409
+    api.release_lease("mcp:test-holder")
+    api.close()
+
+
+async def test_chat_stream_error_event_closes_stream(project):
+    # 队列中途耗尽（IndexError 逃逸 run_stream）→ 流内 error 事件后收束，
+    # 不吊死连接（error 为最后一条 data 行）
+    fake = FakeBackend([json.dumps(
+        {"tool": "generate", "args": {"artifact_type": "premise"}},
+        ensure_ascii=False)])
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        async with c.stream("POST", "/api/chat/stream",
+                            json={"message": "hi"}) as r:
+            body = (await r.aread()).decode()
+    events = _sse_events(body)
+    assert events[-1]["type"] == "error"
+    assert "pop from empty list" in events[-1]["text"]
