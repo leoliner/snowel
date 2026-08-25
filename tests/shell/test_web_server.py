@@ -1,11 +1,16 @@
 # tests/shell/test_web_server.py
-"""Web 壳（W2/W5）：app 工厂项目绑定、租约会话、写守卫 409、静态 SPA serve。"""
+"""Web 壳（W2/W5）：app 工厂项目绑定、租约会话、写守卫 409、静态 SPA serve、
+Task 6 写 API 面（确认/否决/改写/生成/封卷/retcon/伏笔/回写/修订）。"""
+import json
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from snowel_core.api import SnowelAPI
+from snowel_core.storage import db, events, projector
 from snowel_core.writeback import mirror
 from snowel.web_server import create_app
+from tests.conftest import FakeBackend
 
 pytestmark = pytest.mark.anyio
 
@@ -41,8 +46,15 @@ async def test_readonly_session_blocks_writes(project, monkeypatch):
                            base_url="http://t") as c:
         sess = (await c.get("/api/session")).json()
         assert sess["readonly"] is True and sess["holder"] == "mcp:test-holder"
-        r = await c.post("/api/proposal/xxx/confirm")
+        r = await c.post("/api/proposals/xxx/confirm")
         assert r.status_code == 409 and "只读" in r.json()["detail"]
+        # Task 6：写面全部挂同一守卫（readonly → 409，不触碰领域）
+        assert (await c.post("/api/generate", json={
+            "artifact_type": "premise"})).status_code == 409
+        assert (await c.post("/api/seal", json={
+            "volume_id": "v1"})).status_code == 409
+        assert (await c.post("/api/writeback/extract", json={
+            "chapter_id": "ch1"})).status_code == 409
     api.release_lease("mcp:test-holder")
     api.close()
 
@@ -182,3 +194,293 @@ def test_web_rejects_non_project(tmp_path):
     res = CliRunner().invoke(app, ["web", "--project", str(tmp_path)])
     assert res.exit_code == 1
     assert "snowel init" in res.output
+
+
+# ---- Task 6：写 API 面（确认/否决/改写/生成/封卷/retcon/伏笔/回写/修订）----
+
+def _seed_event(api, facts):
+    """直接事件种子（与 core 测试同款）：proposal_confirmed + 物化。"""
+    with db.transaction(api._conn):
+        events.append_event(api._conn, "proposal_confirmed", {
+            "artifact_type": "t", "facts": facts})
+    projector.apply(api._conn)
+
+
+def _llm_resp(draft="生成稿", facts=None):
+    return json.dumps({"draft": draft, "facts": facts or [], "appeared": []},
+                      ensure_ascii=False)
+
+
+async def test_confirm_returns_seq_and_cascade(project):
+    # 种子机制节点（level=3）+ 变更提案（level=5）→ 确认返回 seq + cascade 键
+    # （E5 接线：major 矛盾产 diff 提案，cascade 非 None）
+    api = SnowelAPI.open(project)
+    _seed_event(api, [{"fact": "node", "id": "m1", "types": ["Mechanism"],
+                       "name": "积分兑换",
+                       "props": {"mechanism": {"level": 3}}}])
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "m1", "types": ["Mechanism"],
+         "name": "积分兑换", "props": {"mechanism": {"level": 5}}}]})
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post(f"/api/proposals/{pid}/confirm")
+        assert r.status_code == 200
+        body = r.json()
+        assert isinstance(body["seq"], int) and body["seq"] > 0
+        assert body["cascade"]["tier"] == "full"
+        assert any(v["rule"] == "contradiction"
+                   for v in body["cascade"]["violations"])
+        # 已确认提案再确认 → ProposalStateError → 409（带状态机消息）
+        r2 = await c.post(f"/api/proposals/{pid}/confirm")
+        assert r2.status_code == 409 and "非法迁移" in r2.json()["detail"]
+        # 缺失 pid → 404
+        assert (await c.post("/api/proposals/nope/confirm")).status_code == 404
+
+
+async def test_confirm_retcon_roundtrip(project):
+    # 壳零分派（铁律 1）：retcon 提案走 confirm → core ValueError → 400；
+    # confirm_retcon 端点返回 seq + cascade（propose 时同步进实例的影响清单，
+    # 故 propose 与 confirm 须走同一 app 实例——与生产同进程语义一致）
+    api = SnowelAPI.open(project)
+    _seed_event(api, [{"fact": "node", "id": "m1", "types": ["Mechanism"],
+                       "name": "积分兑换",
+                       "props": {"mechanism": {"level": 3}}}])
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r0 = await c.post("/api/retcon", json={
+            "facts": [{"fact": "node", "id": "m1", "types": ["Mechanism"],
+                       "name": "积分兑换",
+                       "props": {"mechanism": {"level": 9}}}],
+            "reason": "等级体系重排"})
+        assert r0.status_code == 200
+        rpid = r0.json()["proposal_id"]
+        r = await c.post(f"/api/proposals/{rpid}/confirm")
+        assert r.status_code == 400 and "confirm_retcon" in r.json()["detail"]
+        r2 = await c.post(f"/api/proposals/{rpid}/confirm_retcon")
+        assert r2.status_code == 200
+        body = r2.json()
+        assert isinstance(body["seq"], int) and body["seq"] > 0
+        assert body["cascade"]["tier"] == "full"
+        assert any(v["rule"] == "contradiction"
+                   for v in body["cascade"]["violations"])
+
+
+async def test_seal_and_reseal(project):
+    api = SnowelAPI.open(project)
+    _seed_event(api, [{"fact": "node", "id": "v1", "types": ["Volume"],
+                       "name": "卷一",
+                       "props": {"address": {"volume": 1, "chapter": 0,
+                                             "scene": 0, "beat": 0}}}])
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/seal", json={"volume_id": "v1"})
+        assert r.status_code == 200 and r.json() == {"sealed": "v1"}
+        # 重复封卷 → ValueError → 400 带"已封"
+        r2 = await c.post("/api/seal", json={"volume_id": "v1"})
+        assert r2.status_code == 400 and "已封" in r2.json()["detail"]
+
+
+async def test_rewrite_with_injected_backend(project):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("premise", {"draft": "旧草稿", "facts": []})
+    api.close()
+    fake = FakeBackend([_llm_resp("改写稿")])
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post(f"/api/proposals/{pid}/rewrite",
+                         json={"instruction": "更黑暗"})
+        assert r.status_code == 200
+        new_pid = r.json()["proposal_id"]
+        assert new_pid and new_pid != pid
+        assert (await c.post(f"/api/proposals/{pid}/rewrite",
+                             json={})).status_code == 400  # instruction 必填
+    assert "更黑暗" in fake.calls[0]["prompt"]              # 指令进提示词
+    check = SnowelAPI.open(project)
+    p = json.loads(check.proposals.get(new_pid)["payload"])
+    assert p["draft"] == "改写稿" and p["rewritten_from"] == pid
+    check.close()
+
+
+async def test_generate_with_injected_backend(project):
+    fake = FakeBackend([_llm_resp("生成的设定")])
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/generate", json={
+            "artifact_type": "premise", "extra": {"notes": "无限流"}})
+        assert r.status_code == 200
+        pid = r.json()["proposal_id"]
+        assert pid
+        assert (await c.post("/api/generate", json={})).status_code == 400
+    assert "无限流" in fake.calls[0]["prompt"]
+    check = SnowelAPI.open(project)
+    assert check.proposals.get(pid)["status"] == "pending"  # 产出必进提案队列
+    check.close()
+
+
+async def test_expand_chapter_with_injected_backend(project):
+    api = SnowelAPI.open(project)
+    _seed_event(api, [{"fact": "node", "id": "sc1", "types": ["Scene"],
+                       "name": "雨夜", "props": {"chapter": "ch1",
+                                                 "characters": [],
+                                                 "required_elements": ["雨夜"]}}])
+    api.close()
+    fake = FakeBackend([_llm_resp("意图"), _llm_resp("微节拍组"), _llm_resp("正文")])
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/expand/chapter", json={"chapter_id": "ch1"})
+        assert r.status_code == 200
+        assert len(r.json()["proposal_ids"]) == 3 and len(fake.calls) == 3
+
+
+async def test_expand_volume_with_injected_backend(project):
+    fake = FakeBackend([_llm_resp("主题"), _llm_resp("三幕")])
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/expand/volume", json={"volume_id": "v1"})
+        assert r.status_code == 200
+        assert len(r.json()["proposal_ids"]) == 2 and len(fake.calls) == 2
+
+
+async def test_retcon_endpoint_returns_impact(project):
+    api = SnowelAPI.open(project)
+    _seed_event(api, [{"fact": "node", "id": "m1", "types": ["Mechanism"],
+                       "name": "积分兑换",
+                       "props": {"mechanism": {"level": 3}}}])
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/retcon", json={
+            "facts": [{"fact": "node", "id": "m1", "types": ["Mechanism"],
+                       "name": "积分兑换",
+                       "props": {"mechanism": {"level": 9}}}],
+            "reason": "等级体系重排"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["proposal_id"]
+        assert "violations" in body["impact"]
+        assert "affected_proposals" in body["impact"]
+
+
+async def test_foreshadow_endpoint(project):
+    api = SnowelAPI.open(project)
+    _seed_event(api, [{"fact": "node", "id": "mb1", "types": ["MicroBeat"],
+                       "name": "开场拍",
+                       "props": {"address": {"volume": 1, "chapter": 1,
+                                             "scene": 1, "beat": 1}}}])
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/foreshadow", json={
+            "name": "怀表", "planted_at": "mb1", "note": "第3章回收"})
+        assert r.status_code == 200 and r.json()["proposal_id"]
+        # 非法 planted_at → core ValueError → 400
+        r2 = await c.post("/api/foreshadow", json={
+            "name": "怀表", "planted_at": "nope"})
+        assert r2.status_code == 400 and "planted_at" in r2.json()["detail"]
+
+
+async def test_writeback_extract_with_injected_backend(project):
+    # 数字陷阱：low 敏感事实不得含 ASCII 数字（否则后校抬成 high 改走提案）
+    api = SnowelAPI.open(project)
+    mirror.write_prose(api._conn, project, "ch1", "林晚攒积分。")
+    api.close()
+    resp = json.dumps({"facts": [
+        {"sensitivity": "low", "fact": {
+            "fact": "node", "id": "m2", "types": ["Mechanism"],
+            "name": "新机制", "props": {}}}], "appeared": []},
+        ensure_ascii=False)
+    app = create_app(str(project), llm_backend=FakeBackend([resp]))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/writeback/extract", json={"chapter_id": "ch1"})
+        assert r.status_code == 200
+        body = r.json()                                    # 完整 extract 返回
+        assert body["chapter_id"] == "ch1"
+        assert body["proposal_id"] is None                 # 仅 low → auto 入典
+        assert isinstance(body["auto_event_seq"], int)
+        assert body["cascade"]["tier"] == "light"          # 含 cascade 键
+        assert "deviation" in body
+
+
+async def test_writeback_reject_auto(project):
+    api = SnowelAPI.open(project)
+    _seed_event(api, [{"fact": "node", "id": "m1", "types": ["Mechanism"],
+                       "name": "积分兑换", "props": {}}])
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/writeback/reject_auto",
+                         json={"entries": [["node", "m1"]]})
+        assert r.status_code == 200
+        assert r.json()["retracted"] == 1 and "cascade" in r.json()
+    check = SnowelAPI.open(project)
+    n = check._conn.execute(
+        "SELECT count(*) c FROM events WHERE kind='retraction'").fetchone()["c"]
+    assert n == 1
+    check.close()
+
+
+async def test_writeback_reregister(project):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("prose", {
+        "chapter_id": "ch1", "content": "正文内容", "facts": []})
+    api.confirm(pid)                                       # 确认即代写
+    api.close()
+    (project / "chapters" / "ch1.md").unlink()             # 模拟文件丢失
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/writeback/reregister",
+                         json={"proposal_id": pid})
+        assert r.status_code == 200 and r.json() == {"chapter_id": "ch1"}
+        assert (project / "chapters" / "ch1.md").exists()
+        # 非 prose/未确认/缺失 → core ValueError → 400
+        assert (await c.post("/api/writeback/reregister",
+                             json={"proposal_id": "nope"})).status_code == 400
+
+
+async def test_revision_endpoint(project):
+    api = SnowelAPI.open(project)
+    _seed_event(api, [{"fact": "node", "id": "c5", "types": ["Chapter"],
+                       "name": "第5章",
+                       "props": {"address": {"volume": 1, "chapter": 5,
+                                             "scene": 0, "beat": 0}}}])
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/revision", json={
+            "node_id": "c5", "reason": "章改卷",
+            "new_address": {"volume": 1, "chapter": 9, "scene": 0, "beat": 0}})
+        assert r.status_code == 200 and r.json()["proposal_id"]
+
+
+async def test_web_confirm_visible_from_separate_handle(project):  # TC-SH-03
+    # 三端视图一致：Web 确认后，独立 SnowelAPI 句柄（与 Web app 共库）读 confirmed
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "n1", "types": ["Concept"], "name": "雪",
+         "props": {}}]})
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        assert (await c.post(f"/api/proposals/{pid}/confirm")).status_code == 200
+    other = SnowelAPI.open(project)
+    try:
+        assert other.proposals.get(pid)["status"] == "confirmed"
+    finally:
+        other.close()

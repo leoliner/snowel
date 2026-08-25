@@ -22,10 +22,12 @@ from fastapi.staticfiles import StaticFiles
 # 用 starlette 基类而非 fastapi 子类：StaticFiles 抛的是基类，
 # 以子类捕获（except fastapi.HTTPException）会漏接
 from starlette.exceptions import HTTPException
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 from starlette.types import Scope
 
 from snowel_core.api import SnowelAPI
+from snowel_core.consistency.seal import SealedVolumeError
+from snowel_core.proposal.queue import ProposalStateError
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # 源码布局：shell/src/snowel/ -> 仓库根
 _DEFAULT_DIST = _REPO_ROOT / "web" / "dist"
@@ -64,12 +66,22 @@ def _proposal(api: SnowelAPI, pid: str) -> dict:
     return {**dict(row), "payload": json.loads(row["payload"])}
 
 
+def _require(body: dict | None, key: str):
+    """请求体必填字段守卫：缺失/空值 → 400（统一 ValueError 映射）。"""
+    val = (body or {}).get(key)
+    if not val:
+        raise ValueError(f"{key} 必填")
+    return val
+
+
 def create_app(project_root: str | Path,
-               static_dir: str | Path | None = None) -> FastAPI:
+               static_dir: str | Path | None = None,
+               llm_backend=None) -> FastAPI:
     """app 工厂：绑定项目、抢写租约，挂 app.state；web/dist 存在则挂 /。
 
     static_dir 缺省取 <仓库根>/web/dist（源码布局解析），缺失则跳过挂载
-    （无 node 环境测试不破）。
+    （无 node 环境测试不破）。llm_backend 为测试注入点（FakeBackend），
+    缺省 None → 写端点透传给 core，由其按配置解析默认 backend。
     """
     root = Path(project_root)
     api = SnowelAPI.open(root)
@@ -81,6 +93,23 @@ def create_app(project_root: str | Path,
     app.state.readonly = not got
     app.state.holder = None if got else api.current_lease_holder()
     app.state._lease_holder = holder if got else None  # shutdown 定向释放
+    app.state.llm_backend = llm_backend
+
+    # ---- 统一错误映射（Task 6，全写端点共用）：core 校验错误 → 400，
+    # 队列状态机错误 → 409；missing pid 由 _proposal 统一 404
+    @app.exception_handler(ValueError)
+    async def _value_error(request: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(SealedVolumeError)
+    async def _sealed_error(request: Request,
+                            exc: SealedVolumeError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(ProposalStateError)
+    async def _state_error(request: Request,
+                           exc: ProposalStateError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.get("/api/session")
     async def session(request: Request) -> dict:
@@ -97,11 +126,154 @@ def create_app(project_root: str | Path,
     async def health() -> dict:
         return {"ok": True}
 
-    @app.post("/api/proposal/{pid}/confirm",
+    # ---- 写 API 面（Task 6）：全部 POST，统一过写守卫（readonly → 409）。
+    # db 触碰端点一律 async def（sync def 进线程池 → 跨线程用 sqlite 崩溃，T4 实证）；
+    # 错误映射见工厂头部三个 exception_handler，pid 缺失统一 404（_proposal 预检）。
+    @app.post("/api/proposals/{pid}/confirm",
               dependencies=[Depends(_require_write)])
-    async def confirm_placeholder(pid: str) -> dict[str, Any]:
-        """占位路由：只钉住 readonly 守卫（409）；Task 6 替换为本体。"""
-        raise HTTPException(status_code=501, detail="confirm 尚未接线（Task 6）")
+    async def confirm(request: Request, pid: str) -> dict[str, Any]:
+        """确认提案：返回事件 seq + 最近级联结果（E5 接线面）。
+
+        壳零分派：retcon 提案经 kind 由前端预路由到 confirm_retcon 端点；
+        错配时 core 抛 ValueError → 400（含提示消息）。
+        """
+        api = request.app.state.api
+        _proposal(api, pid)  # 404 预检（core 对缺失 pid 是 TypeError，不可映射）
+        seq = api.confirm(pid)
+        return {"seq": seq, "cascade": api.last_cascade()}
+
+    @app.post("/api/proposals/{pid}/confirm_retcon",
+              dependencies=[Depends(_require_write)])
+    async def confirm_retcon(request: Request, pid: str) -> dict[str, Any]:
+        """retcon 专属确认（冻结线豁免）：响应形态与 confirm 同（seq + cascade）。"""
+        api = request.app.state.api
+        _proposal(api, pid)
+        seq = api.confirm_retcon(pid)
+        return {"seq": seq, "cascade": api.last_cascade()}
+
+    @app.post("/api/proposals/{pid}/reject",
+              dependencies=[Depends(_require_write)])
+    async def reject(request: Request, pid: str,
+                     body: dict | None = None) -> dict[str, Any]:
+        """否决提案；reason 可选（历史留痕）。"""
+        api = request.app.state.api
+        _proposal(api, pid)
+        api.proposals.reject(pid, (body or {}).get("reason"))
+        return {"ok": True}
+
+    @app.post("/api/proposals/{pid}/rewrite",
+              dependencies=[Depends(_require_write)])
+    async def rewrite(request: Request, pid: str,
+                      body: dict | None = None) -> dict[str, Any]:
+        """提案改写：按指令产新提案（标 rewritten_from），原提案留队不动。"""
+        api = request.app.state.api
+        _proposal(api, pid)
+        instruction = _require(body, "instruction")
+        new_pid = api.rewrite_proposal(
+            pid, instruction, backend=request.app.state.llm_backend or None)
+        return {"proposal_id": new_pid}
+
+    @app.post("/api/generate", dependencies=[Depends(_require_write)])
+    async def generate(request: Request,
+                       body: dict | None = None) -> dict[str, Any]:
+        """生成环：按产物类型产出提案（产出必进队列，不直接回生成文本）。"""
+        api = request.app.state.api
+        artifact_type = _require(body, "artifact_type")
+        pid = api.ai_generate(artifact_type,
+                              locate=(body or {}).get("locate"),
+                              extra=(body or {}).get("extra"),
+                              backend=request.app.state.llm_backend or None)
+        return {"proposal_id": pid}
+
+    @app.post("/api/expand/chapter", dependencies=[Depends(_require_write)])
+    async def expand_chapter(request: Request,
+                             body: dict | None = None) -> dict[str, Any]:
+        """小雪花章级展开：按序产三提案（意图→微节拍组→正文），不自动确认。"""
+        api = request.app.state.api
+        chapter_id = _require(body, "chapter_id")
+        pids = api.expand_chapter(chapter_id,
+                                  request.app.state.llm_backend or None,
+                                  extra=(body or {}).get("extra"))
+        return {"proposal_ids": pids}
+
+    @app.post("/api/expand/volume", dependencies=[Depends(_require_write)])
+    async def expand_volume(request: Request,
+                            body: dict | None = None) -> dict[str, Any]:
+        """卷级展开：主题→三幕两提案（locate 携带卷首世界状态，不自动确认）。"""
+        api = request.app.state.api
+        volume_id = _require(body, "volume_id")
+        pids = api.expand_volume(volume_id,
+                                 request.app.state.llm_backend or None,
+                                 extra=(body or {}).get("extra"))
+        return {"proposal_ids": pids}
+
+    @app.post("/api/seal", dependencies=[Depends(_require_write)])
+    async def seal(request: Request, body: dict | None = None) -> dict[str, Any]:
+        """封卷（C7 冻结线）：重复封卷 → 400 带"已封"（ValueError 映射）。"""
+        api = request.app.state.api
+        volume_id = _require(body, "volume_id")
+        api.seal(volume_id)
+        return {"sealed": volume_id}
+
+    @app.post("/api/retcon", dependencies=[Depends(_require_write)])
+    async def retcon(request: Request,
+                     body: dict | None = None) -> dict[str, Any]:
+        """显式 retcon（冻结线合法通道）：建提案 + 影响清单（propose 即跑全量级联）。"""
+        api = request.app.state.api
+        return api.propose_retcon(
+            facts=(body or {}).get("facts"),
+            renames=(body or {}).get("renames"),
+            track_updates=(body or {}).get("track_updates"),
+            reason=_require(body, "reason"))
+
+    @app.post("/api/foreshadow", dependencies=[Depends(_require_write)])
+    async def foreshadow(request: Request,
+                         body: dict | None = None) -> dict[str, Any]:
+        """伏笔注册（author 通道）：建 kind=foreshadow 提案，确认走 confirm。"""
+        api = request.app.state.api
+        pid = api.register_foreshadow(
+            _require(body, "name"), _require(body, "planted_at"),
+            origin=(body or {}).get("origin", "author"),
+            payoff_beat=(body or {}).get("payoff_beat"),
+            note=(body or {}).get("note", ""))
+        return {"proposal_id": pid}
+
+    @app.post("/api/writeback/extract", dependencies=[Depends(_require_write)])
+    async def writeback_extract(request: Request,
+                                body: dict | None = None) -> dict[str, Any]:
+        """抽取回写（铁律 1 唯一入口）：完整 extract 返回（含 cascade 键）。"""
+        api = request.app.state.api
+        return api.trigger_extract(
+            _require(body, "chapter_id"),
+            backend=request.app.state.llm_backend or None)
+
+    @app.post("/api/writeback/reject_auto",
+              dependencies=[Depends(_require_write)])
+    async def writeback_reject_auto(request: Request,
+                                    body: dict | None = None) -> dict[str, Any]:
+        """auto 条目事后否决（C11，不受冻结线）：entries=[[target, id], ...]。"""
+        api = request.app.state.api
+        entries = [(e[0], e[1]) for e in _require(body, "entries")]
+        return api.reject_auto(entries, reason=(body or {}).get("reason"))
+
+    @app.post("/api/writeback/reregister",
+              dependencies=[Depends(_require_write)])
+    async def writeback_reregister(request: Request,
+                                   body: dict | None = None) -> dict[str, Any]:
+        """崩溃窗口恢复：重放已确认 prose 提案的"确认即代写"（L6）。"""
+        api = request.app.state.api
+        chapter_id = api.reregister_prose(_require(body, "proposal_id"))
+        return {"chapter_id": chapter_id}
+
+    @app.post("/api/revision", dependencies=[Depends(_require_write)])
+    async def revision(request: Request,
+                       body: dict | None = None) -> dict[str, Any]:
+        """统一 revision（§5.2）：结构变更提案，确认后二段物化。"""
+        api = request.app.state.api
+        pid = api.propose_revision(_require(body, "node_id"),
+                                   _require(body, "new_address"),
+                                   reason=(body or {}).get("reason", ""))
+        return {"proposal_id": pid}
 
     # ---- 只读 API 面（Task 5）：全部 GET，一比一转发 api 门面，pid 缺失统一 404。
     # 只读降级读不限（TC-SH-04）——不挂写守卫；db 触碰端点一律 async def
