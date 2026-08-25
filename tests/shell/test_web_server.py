@@ -61,6 +61,84 @@ async def test_static_serve_with_spa_fallback(project, tmp_path):
         assert (await c.get("/api/health")).json() == {"ok": True}  # API 优先于静态
 
 
+async def test_proposal_read_surface(project):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "n1", "types": ["Concept"], "name": "x",
+         "props": {}}]})
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        lst = (await c.get("/api/proposals", params={"status": "pending"}))
+        assert lst.status_code == 200 and any(
+            p["id"] == pid for p in lst.json())
+        one = (await c.get(f"/api/proposals/{pid}")).json()
+        assert one["kind"] == "t" and one["payload"]["facts"][0]["id"] == "n1"
+        assert (await c.get("/api/proposals/nope")).status_code == 404
+        prev = (await c.get(f"/api/proposals/{pid}/cascade_preview")).json()
+        assert "violations" in prev            # 预演返回，队列长度不变
+
+
+async def test_read_surface_missing_pid_and_404s(project):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("t", {"facts": []})
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        # 不存在 pid：单查与级联预演统一 404
+        assert (await c.get(f"/api/proposals/{pid}/cascade_preview")
+                ).status_code == 200      # 空 facts 预演照常 200
+        assert (await c.get("/api/proposals/nope/cascade_preview")
+                ).status_code == 404
+        # 检索/审计等无 pid 端点照常 200（不误伤）
+        assert (await c.get("/api/search", params={"q": "x"})).status_code == 200
+        assert (await c.get("/api/audit")).status_code == 200
+        assert (await c.get("/api/writeback/auto")).status_code == 200
+        assert (await c.get("/api/writeback/deviation/ch1")).status_code == 200
+        assert (await c.get("/api/reconcile")).status_code == 200
+        assert (await c.get("/api/sealed")).status_code == 200
+
+
+async def test_node_flow_search_reconcile_happy_paths(project):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "n1", "types": ["Concept"], "name": "雪",
+         "props": {}}]})
+    api.confirm(pid)
+    api.close()
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        node = (await c.get("/api/nodes/n1")).json()
+        assert node["node"]["id"] == "n1" and node["node"]["name"] == "雪"
+        assert (await c.get("/api/nodes/nope")).json()["node"] is None
+        flow = (await c.get("/api/flow")).json()
+        assert isinstance(flow, dict)
+        assert (await c.get("/api/state", params={"at": 1})).status_code == 200
+        s = (await c.get("/api/search", params={"q": "雪"})).json()
+        assert "nodes" in s and "paragraphs" in s
+        assert (await c.get("/api/sealed")).json() == []   # 未封卷
+        assert (await c.get("/api/reconcile")).json() == []  # 无镜像差异
+
+
+async def test_readonly_session_reads_freely(project):
+    # TC-SH-04：只读会话 GET 全部照常（只读降级读不限，仅写端点 409）
+    api = SnowelAPI.open(project)          # 抢占租约：模拟他端持锁
+    api.acquire_lease("mcp:test-holder")
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        sess = (await c.get("/api/session")).json()
+        assert sess["readonly"] is True
+        assert (await c.get("/api/flow")).status_code == 200
+        assert (await c.get("/api/proposals")).status_code == 200
+        assert (await c.get("/api/audit")).status_code == 200
+    api.release_lease("mcp:test-holder")
+    api.close()
+
+
 def test_web_rejects_non_project(tmp_path):
     # TC-SH-06：非项目目录启动 → 明确报错 + 非零退出（不阻塞 uvicorn）
     from typer.testing import CliRunner

@@ -11,6 +11,7 @@ open + acquire 在工厂内同步完成：httpx ASGITransport 不发送 lifespan
 """
 from __future__ import annotations
 
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -48,6 +49,19 @@ def _require_write(request: Request) -> None:
         raise HTTPException(
             status_code=409,
             detail=f"只读会话：写租约由 {request.app.state.holder} 持有")
+
+
+def _rows(rows) -> list[dict]:
+    # sqlite3.Row 无法被 JSON 序列化，边界处统一转 dict（与 mcp_server 同款模式）
+    return [dict(r) for r in rows]
+
+
+def _proposal(api: SnowelAPI, pid: str) -> dict:
+    """提案行 + 解析后的 payload（404 统一：pid 不存在抛 HTTPException）。"""
+    row = api.proposals.get(pid)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"提案 {pid} 不存在")
+    return {**dict(row), "payload": json.loads(row["payload"])}
 
 
 def create_app(project_root: str | Path,
@@ -88,6 +102,80 @@ def create_app(project_root: str | Path,
     async def confirm_placeholder(pid: str) -> dict[str, Any]:
         """占位路由：只钉住 readonly 守卫（409）；Task 6 替换为本体。"""
         raise HTTPException(status_code=501, detail="confirm 尚未接线（Task 6）")
+
+    # ---- 只读 API 面（Task 5）：全部 GET，一比一转发 api 门面，pid 缺失统一 404。
+    # 只读降级读不限（TC-SH-04）——不挂写守卫；db 触碰端点一律 async def
+    # （sync def 进线程池 → 跨线程用 sqlite 崩溃，T4 实证）。
+    @app.get("/api/flow")
+    async def flow(request: Request) -> dict:
+        """流程树（雪花流程状态，含卷/章树）。"""
+        return request.app.state.api.flow_state()
+
+    @app.get("/api/proposals")
+    async def proposals(request: Request,
+                        status: str | None = None) -> list[dict]:
+        """提案队列列表；status 可选，缺省全量（status 过滤在 core 侧）。"""
+        return _rows(request.app.state.api.proposals.list(status))
+
+    @app.get("/api/proposals/{pid}")
+    async def proposal_detail(request: Request, pid: str) -> dict:
+        """提案详情：payload 解析为对象；kind 字段供前端分派确认入口
+        （retcon 提案确认按钮路由到 confirm_retcon 端点，壳零分派）。"""
+        return _proposal(request.app.state.api, pid)
+
+    @app.get("/api/proposals/{pid}/cascade_preview")
+    async def cascade_preview(request: Request, pid: str) -> dict:
+        """级联只读预演：按提案 payload.facts 跑档返回 violations + diff
+        预览，不入队任何提案。"""
+        api = request.app.state.api
+        payload = _proposal(api, pid)["payload"]
+        return api.cascade_check(payload.get("facts", []))
+
+    @app.get("/api/search")
+    async def search(request: Request,
+                     q: str,
+                     kind: str | None = None) -> dict:
+        """混合检索（FTS5+jieba + sqlite-vec）；kind 为前端保留位
+        （门面暂不支持，优雅忽略）。"""
+        return request.app.state.api.search(q)
+
+    @app.get("/api/nodes/{node_id}")
+    async def node_detail(request: Request, node_id: str) -> dict:
+        """节点详情 + 关联边（row → dict，JSON 序列化边界）。"""
+        api = request.app.state.api
+        row = api.get_node(node_id)
+        return {"node": dict(row) if row is not None else None,
+                "edges": _rows(api.edges_of(node_id))}
+
+    @app.get("/api/state")
+    async def state(request: Request, at: int) -> dict:
+        """按叙事时间点投影当前生效集（D1 修正后视角）。"""
+        return request.app.state.api.state_at(at)
+
+    @app.get("/api/audit")
+    async def audit(request: Request) -> list[dict]:
+        """最近检索上下文审计。"""
+        return request.app.state.api.audit_recent()
+
+    @app.get("/api/writeback/auto")
+    async def auto_list(request: Request) -> list[dict]:
+        """自动抽取队列（待人工裁决项）。"""
+        return request.app.state.api.list_auto()
+
+    @app.get("/api/writeback/deviation/{chapter_id}")
+    async def deviation(request: Request, chapter_id: str) -> dict:
+        """指定章的抽取偏离报告。"""
+        return request.app.state.api.deviation(chapter_id)
+
+    @app.get("/api/reconcile")
+    async def reconcile(request: Request) -> list[dict]:
+        """正文镜像对账状态（changed/missing 清单，供中栏编辑判断）。"""
+        return request.app.state.api.reconcile_prose()
+
+    @app.get("/api/sealed")
+    async def sealed(request: Request) -> list[dict]:
+        """已封卷列表（冻结线警告面）。"""
+        return request.app.state.api.sealed_volumes()
 
     dist = Path(static_dir) if static_dir is not None else _DEFAULT_DIST
     if dist.is_dir():
