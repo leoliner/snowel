@@ -32,8 +32,9 @@ def _sealed(conn: sqlite3.Connection, volume_id: str) -> bool:
 
 def volume_id_of(conn: sqlite3.Connection, node_id: str) -> str | None:
     """节点归属卷 id（落盘地址口径）：节点 address.volume 编号 → 同号 Volume 节点 id。
-    无 address / 无卷号 → None。"""
-    row = conn.execute("SELECT props FROM nodes WHERE id=? AND active=1",
+    无 address / 无卷号 → None。撤回（active=0）行也查——其存盘地址即"前 canon"，
+    冻结线联合语义必须命中，防撤回复活静默改写已封卷。"""
+    row = conn.execute("SELECT props FROM nodes WHERE id=?",
                        (node_id,)).fetchone()
     if row is None:
         return None

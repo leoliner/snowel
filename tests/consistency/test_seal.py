@@ -73,6 +73,52 @@ def test_extract_auto_blocked_in_sealed_volume(api, tmp_path):  # 冻结线：au
         "SELECT 1 FROM events WHERE kind='auto_canonized'").fetchone() is None
 
 
+def test_confirm_blocked_after_retract_revival(api):  # 冻结线：撤回复活逃逸（confirm 路径）
+    _seed_two_volumes(api)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "积分兑换",
+         "props": {"address": {"volume": 1, "chapter": 0, "scene": 0,
+                               "beat": 0}}}]})
+    api.confirm(pid)                                  # m1 落盘归属卷一
+    api.seal("v1")
+    with db.transaction(api._conn):
+        events.append_event(api._conn, "retraction",
+                            {"target": "node", "target_id": "m1"})
+    projector.apply(api._conn)  # C11 撤回：active=0，props（含 address）保留
+    pid2 = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "积分兑换",
+         "props": {"mechanism": {"level": 9}}}]})     # 无 address：逃逸点
+    with pytest.raises(SealedVolumeError, match="封卷"):
+        api.confirm(pid2)  # 撤回前存盘地址仍命中已封卷——不得静默复活改写
+
+
+def test_extract_blocked_after_retract_revival(api, tmp_path):  # 冻结线：撤回复活逃逸（extract 路径）
+    from snowel_core.writeback import mirror
+    _seed_two_volumes(api)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "积分兑换",
+         "props": {"address": {"volume": 1, "chapter": 0, "scene": 0,
+                               "beat": 0}}}]})
+    api.confirm(pid)                                  # m1 落盘归属卷一
+    api.seal("v1")
+    with db.transaction(api._conn):
+        events.append_event(api._conn, "retraction",
+                            {"target": "node", "target_id": "m1"})
+    projector.apply(api._conn)  # C11 撤回：active=0，props（含 address）保留
+    mirror.write_prose(api._conn, tmp_path, "c3", "林晚攒积分，第3章正文。")
+    resp = json.dumps({"facts": [
+        {"sensitivity": "low", "fact": {
+            "fact": "node", "id": "m1", "types": ["Mechanism"],
+            "name": "积分兑换",
+            "props": {"mechanism": {"规则": "一命换两命"}}}}],  # 无数字、无 address
+        "appeared": []}, ensure_ascii=False)
+    from tests.conftest import FakeBackend
+    with pytest.raises(SealedVolumeError, match="封卷"):
+        api.extract_and_writeback("c3", backend=FakeBackend([resp]))
+    assert api._conn.execute(
+        "SELECT 1 FROM events WHERE kind='auto_canonized'").fetchone() is None
+
+
 def test_auto_retraction_ignores_freeze(api, tmp_path):  # TC-WB-08 后半
     _seed_two_volumes(api)
     pid = api.proposals.create("t", {"facts": [

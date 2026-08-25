@@ -158,9 +158,9 @@ class SnowelAPI:
         if exclude:  # TC-PR-09：剔除的事实不入事件 → 也不构成级联分析对象
             facts = [f for f in facts if f.get("id") not in set(exclude)]
         pre_violations = None
-        if p["kind"] not in ("revision", "retcon") and facts:
+        if p["kind"] not in ("revision",) and facts:
             # 冻结线（C7）：变更落已封卷内设定 → 事务前拦截，提示走显式 retcon；
-            # retcon 专属流程豁免（Task 8 的确认路径不走此处）；revision 无事实语义
+            # revision 无事实语义（结构变更走二段物化）；retcon 已在函数入口整体拒绝
             from .consistency import seal
             for f in facts:
                 if f.get("fact") == "node":
