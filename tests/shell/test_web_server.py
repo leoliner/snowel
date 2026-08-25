@@ -782,3 +782,74 @@ async def test_chapter_prose_endpoint(project):
         r2 = await c.get("/api/chapters/nope/prose")
         assert r2.status_code == 200
         assert r2.json() == {"chapter_id": "nope", "prose": None}
+
+
+# ---- Task 14：TC-SH-08 API 级端到端（流程树/工作区/编辑页/聊天约束四断言面）----
+
+async def test_tc_sh_08_api_e2e(project):
+    """TC-SH-08 端到端：init → 种子一层（premise 确认 + 卷/章物化）→
+    /api/flow（层进度+卷章树）→ /api/proposals（工作区数据源）→
+    /api/reconcile（编辑页识别镜像状态）→ /api/chat（FakeBackend 一轮产提案，
+    响应无已确认动作——确认只落结构化面板）→ confirm（结构化确认）→ confirmed。"""
+    # 1. init + 种子一层：premise 走真实确认路径（事件+投影器+提案行，层进度
+    #    done）；卷/章树随 structure 事件物化（tests/flow/test_state 同款）
+    api = SnowelAPI.open(project)
+    spid = api.proposals.create("premise", {"draft": "无限流前提"})
+    api.confirm(spid)
+    with db.transaction(api._conn):
+        events.append_event(api._conn, "proposal_confirmed", {
+            "artifact_type": "structure", "facts": [
+                {"fact": "node", "id": "v1", "types": ["Volume"],
+                 "name": "卷一", "props": {}},
+                {"fact": "node", "id": "ch1", "types": ["Chapter"],
+                 "name": "第一章", "props": {"volume": "v1"}}]})
+        projector.apply(api._conn)
+    mirror.write_prose(api._conn, project, "ch1", "段一")   # 中栏可编辑正文
+    api.close()
+    (project / "chapters" / "ch1.md").write_text("段一（外部改动）",
+                                                 encoding="utf-8")
+
+    fake = FakeBackend(_chat_queue())
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        # 2. 流程树面：premise 层 done + 卷章树就位
+        flow = (await c.get("/api/flow")).json()
+        assert flow["layers"]["premise"] == "done"
+        assert flow["current_layer"] == "synopsis"
+        assert flow["volumes"] == [{"id": "v1", "name": "卷一",
+                                    "chapters": [{"id": "ch1",
+                                                  "name": "第一章"}]}]
+        # 3. 工作区面：已确认种子在列表可见（面板数据源含历史）
+        lst = (await c.get("/api/proposals")).json()
+        assert any(p["id"] == spid and p["status"] == "confirmed"
+                   for p in lst)
+        # 4. 编辑页面：对账识别镜像外部改动（中栏 reconcile 警告数据源）
+        rec = (await c.get("/api/reconcile")).json()
+        assert {"chapter_id": "ch1", "status": "external_change"} in rec
+        # 5. 聊天约束面：一轮工具调用产提案；响应无任何已确认动作
+        body = (await c.post("/api/chat", json={
+            "message": "帮我想个无限流前提"})).json()
+        assert [e["type"] for e in body["events"]] == [
+            "tool_call", "tool_result", "reply"]
+        assert body["events"][0]["tool"] == "generate"
+        assert all(e["type"] != "tool_call" or e["tool"] != "confirm"
+                   for e in body["events"])      # 确认类不在工具白名单
+        assert len(fake.calls) == 3               # 工具 JSON → 生成稿 → 回复
+        assert len(body["proposal_ids"]) == 1
+        pid = body["proposal_ids"][0]
+        # 工作区数据源：新提案 pending（确认前不入生效集）
+        pending = (await c.get("/api/proposals",
+                               params={"status": "pending"})).json()
+        assert any(p["id"] == pid for p in pending)
+        # 6. 结构化确认路径：面板 confirm → confirmed
+        r = await c.post(f"/api/proposals/{pid}/confirm")
+        assert r.status_code == 200
+        assert isinstance(r.json()["seq"], int) and "cascade" in r.json()
+        assert (await c.get(f"/api/proposals/{pid}")
+                ).json()["status"] == "confirmed"
+    check = SnowelAPI.open(project)               # TC-SH-03 式独立句柄（共库）
+    try:
+        assert check.proposals.get(pid)["status"] == "confirmed"
+    finally:
+        check.close()
