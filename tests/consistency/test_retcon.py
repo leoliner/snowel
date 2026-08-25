@@ -1,5 +1,6 @@
 # tests/consistency/test_retcon.py
 import json
+import pytest
 from snowel_core.consistency import retcon
 from snowel_core.storage import db, events, projector
 from snowel_core.writeback import mirror
@@ -40,6 +41,21 @@ def test_retcon_flow_with_impact_and_precise_stale(api, tmp_path):  # TC-CC-07/C
     kinds = [r["kind"] for r in api._conn.execute(
         "SELECT kind FROM events ORDER BY seq")]
     assert "retcon_applied" in kinds
+    ev = api._conn.execute(
+        "SELECT payload FROM events WHERE kind='retcon_applied'").fetchone()
+    p = json.loads(ev["payload"])
+    assert set(p) == {"renames", "track_updates", "impact"}   # 影响清单三键齐全
+    assert p["renames"] == [] and p["track_updates"] == []
+    assert p["impact"]["affected_proposals"] == [touched]     # P5：确认不重跑
+    deps = [v for v in p["impact"]["violations"] if v["rule"] == "dependents"]
+    assert deps and any(any(str(r).startswith("ch50:") for r in v["refs"])
+                        for v in deps)                        # 正文提示（C9 面）
+    contra = [v for v in p["impact"]["violations"]
+              if v["rule"] == "contradiction"]
+    assert contra and contra[0]["detail"]["old"] == 3         # 旧→新版事实
+    assert contra[0]["detail"]["new"] == 9
+    f = tmp_path / "chapters" / "ch50.md"                     # C9：旧正文不被自动改
+    assert f.read_text(encoding="utf-8") == "积分兑换面板亮起。"
     assert json.loads(api.get_node("m1")["props"])["mechanism"]["level"] == 9
     assert api.proposals.get(other)["status"] == "pending"   # 精确 stale
     assert api.proposals.get(touched)["status"] == "stale"
@@ -66,3 +82,34 @@ def test_retcon_sealed_volume_and_track_update(api, tmp_path):  # P3 + 冻结豁
     d = json.loads(api._conn.execute(
         "SELECT definition FROM tracks WHERE id='t1'").fetchone()["definition"])
     assert d == {"流速": 2}
+
+
+def test_retcon_rename_materializes_and_keeps_alias(api, tmp_path):  # renames 端到端
+    _seed(api, tmp_path)
+    out = retcon.propose_retcon(api, renames=[
+        {"node_id": "m1", "old_name": "积分兑换", "new_name": "积分商城"}],
+        reason="改名")
+    deps = [v for v in out["impact"]["violations"] if v["rule"] == "dependents"]
+    assert deps and any(any(str(r).startswith("ch50:") for r in v["refs"])
+                        for v in deps)                # 旧名正文反查命中（C9 提示面）
+    assert api.confirm_retcon(out["proposal_id"]) > 0
+    assert api.get_node("m1")["name"] == "积分商城"    # 物化为新名
+    ev = api._conn.execute(
+        "SELECT payload FROM events WHERE kind='retcon_applied'").fetchone()
+    p = json.loads(ev["payload"])
+    assert p["renames"] == [{"node_id": "m1", "old_name": "积分兑换",
+                             "new_name": "积分商城"}]  # 事件完整携带 renames
+    alias = api._conn.execute(
+        "SELECT alias FROM alias WHERE node_id='m1' AND source='retcon'"
+    ).fetchone()
+    assert alias["alias"] == "积分兑换"                # 旧名入 alias 可查
+
+
+def test_confirm_rejects_retcon_proposal(api, tmp_path):  # 通用确认拦截锚定：无半应用
+    _seed(api, tmp_path)
+    out = retcon.propose_retcon(api, facts=[
+        {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "积分兑换",
+         "props": {"mechanism": {"level": 5}}}], reason="拦截验证")
+    with pytest.raises(ValueError, match="confirm_retcon"):
+        api.confirm(out["proposal_id"])
+    assert api.proposals.get(out["proposal_id"])["status"] == "pending"  # 未半应用

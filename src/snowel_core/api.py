@@ -148,6 +148,11 @@ class SnowelAPI:
         revision/retcon 不走此处（revision 无事实语义变更；retcon 有专属流程）。
         """
         p = self.proposals.get(proposal_id)
+        if p["kind"] == "retcon":
+            # 拦截：retcon 有专属确认流程（confirm_retcon，Task 8）——通用确认会
+            # 静默丢弃 renames/track_updates、不跑 C5 stale，半应用且无恢复路径
+            raise ValueError(
+                f"提案 {proposal_id} 是 retcon 提案，须走 confirm_retcon 确认")
         payload = json.loads(p["payload"])
         facts = payload.get("facts", [])
         if exclude:  # TC-PR-09：剔除的事实不入事件 → 也不构成级联分析对象
