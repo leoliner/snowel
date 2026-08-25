@@ -16,11 +16,12 @@ def test_auto_mode_extracts_on_external_change(api, tmp_path):  # TC-WB-03
     fake = FakeBackend([EXTRACT])
     sch = hook.HookScheduler(api, fake, mode="auto", interval=1.0)
     results = sch.tick()
-    # extract 是 T8 完整返回（6 键），空 facts 下其余键确定：原样穿透不加料
+    # extract 完整返回（cascade-check 计划后 7 键），空 facts 下其余键确定：原样穿透不加料
     assert results == [{
         "chapter_id": "ch1", "status": "external_change",
         "extract": {"chapter_id": "ch1", "proposal_id": None,
                     "auto_event_seq": None, "warnings": [], "appeared": [],
+                    "cascade": None,
                     "deviation": {"microbeat": None,
                                   "missing_elements": []}}}]
     assert "改后的正文" in fake.calls[0]["prompt"]    # 抽取吃的是新镜像

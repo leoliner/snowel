@@ -20,6 +20,7 @@ class SnowelAPI:
         self._conn = conn
         self._root = root          # 项目根（写文件 IO 用，C1）
         self.proposals = ProposalQueue(conn)
+        self._last_cascade = None  # 最近一次 confirm 的级联结果（E5 接线缓存）
 
     @classmethod
     def init_project(cls, path) -> "SnowelAPI":
@@ -139,16 +140,28 @@ class SnowelAPI:
 
     # 确认即写文件编排（C1）
     def confirm(self, proposal_id: str, exclude: list[str] | None = None) -> int:
-        """统一确认入口：正文类提案确认即代写文件并登记哈希（C1）。"""
+        """统一确认入口：正文类提案确认即代写文件并登记哈希（C1）。
+
+        级联接线（E5 四写入点之一，全量档）：分析在主事务前只读跑——比对
+        基线=变更前生效值（projector 在确认事务内覆写物化值，事后分析回看
+        不到旧值）；diff 提案在主事务后独立产出（P1/P2）。
+        revision/retcon 不走此处（revision 无事实语义变更；retcon 有专属流程）。
+        """
         p = self.proposals.get(proposal_id)
+        payload = json.loads(p["payload"])
+        facts = payload.get("facts", [])
+        if exclude:  # TC-PR-09：剔除的事实不入事件 → 也不构成级联分析对象
+            facts = [f for f in facts if f.get("id") not in set(exclude)]
+        pre_violations = None
+        if p["kind"] not in ("revision", "retcon") and facts:
+            from .consistency import wiring
+            pre_violations = wiring.analyze(self._conn, facts, "full")
         seq = self.proposals.confirm(proposal_id, exclude=exclude)
         if p["kind"] == "prose":
-            payload = json.loads(p["payload"])
             from .writeback import mirror
             mirror.write_prose(self._conn, self._root,
                                payload["chapter_id"], payload["content"])
         if p["kind"] == "revision":  # §5.2：结构变更二段物化（E2 维持 int 返回）
-            payload = json.loads(p["payload"])
             with db.transaction(self._conn):
                 events.append_event(self._conn, "revision_applied", {
                     "structure_changes": payload.get("structure_changes", [])})
@@ -158,7 +171,25 @@ class SnowelAPI:
                 self.proposals.mark_stale(
                     row["id"],
                     f"上游 revision：{payload.get('node_id', '')} 结构变更")
+        self._last_cascade = None
+        if pre_violations is not None:  # 事务后收尾：major 矛盾产 diff 提案
+            self._last_cascade = wiring.finalize(
+                self._conn, pre_violations, seq, "full")
         return seq
+
+    def last_cascade(self) -> dict | None:
+        """最近一次 confirm 的级联结果（该次未跑级联则为 None）。
+
+        E2 契约下 confirm 仍返回 int；级联结果经此暴露（MCP 壳增补
+        "cascade" 键的数据面，壳任务接线）。
+        """
+        return self._last_cascade
+
+    # 级联只读预演门面（E5）：Web/advanced 预演用，跑档返回 violations
+    # + diff 预览，不入队任何提案
+    def cascade_check(self, facts: list[dict], tier: str = "full") -> dict:
+        from .consistency import wiring
+        return wiring.preview(self._conn, facts, tier)
 
     # 崩溃窗口恢复（L6）：按已确认 prose 提案重放"确认即代写"
     def reregister_prose(self, proposal_id: str) -> str:

@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 
+from ..consistency import wiring
 from ..llm.backend import GenerationBackend
 from ..ontology import groups
 from ..storage import config, events, projector
@@ -70,6 +71,7 @@ def extract_and_writeback(api, chapter_id: str, backend: GenerationBackend,
         proposal_id = api.proposals.create("extract_facts", {
             "chapter_id": chapter_id, "facts": high, "appeared": appeared})
     auto_seq = None
+    cascade = None
     if low:
         with transaction(conn):
             auto_seq = events.append_event(conn, "auto_canonized", {
@@ -77,7 +79,9 @@ def extract_and_writeback(api, chapter_id: str, backend: GenerationBackend,
                                          "hash": row["hash"]},
                 "appeared": appeared})
             projector.apply(conn)
+        # 级联接线（E5 四写入点之二）：auto 入典事务后轻量跑档（C11）
+        cascade = wiring.after_commit(conn, low, auto_seq, "light")
     return {"chapter_id": chapter_id, "proposal_id": proposal_id,
             "auto_event_seq": auto_seq, "warnings": warnings,
-            "appeared": appeared,
+            "appeared": appeared, "cascade": cascade,
             "deviation": deviation.report(conn, chapter_id)}  # C12：随抽取产出

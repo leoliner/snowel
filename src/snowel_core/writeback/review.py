@@ -2,6 +2,7 @@
 import json
 import sqlite3
 
+from ..consistency import wiring
 from ..storage import events, fts, projector
 from ..storage.db import transaction
 
@@ -47,4 +48,12 @@ def reject_auto(conn: sqlite3.Connection, entries: list[tuple[str, str]],
                 if row is not None:
                     paragraphs += fts.search(conn, row["name"])["paragraphs"]
         projector.apply(conn)
-    return {"retracted": len(entries), "referencing_paragraphs": paragraphs}
+    # 级联接线（E5 四写入点之四）：retraction 事务后轻量跑档（C11 轻量下游
+    # 级联提示）；变更集元素 kind="retraction" 按被撤目标构造，矛盾检测跳过
+    cascade = wiring.after_commit(
+        conn,
+        [{"fact": "retraction", "target": t, "target_id": tid}
+         for t, tid in entries],
+        events.head_seq(conn), "light")
+    return {"retracted": len(entries), "referencing_paragraphs": paragraphs,
+            "cascade": cascade}
