@@ -2,6 +2,8 @@
 import json
 import sqlite3
 
+from . import deathbeat
+
 
 def state_at(conn: sqlite3.Connection, story_order: int) -> dict:
     """D1 修正后视角：fold 到 HEAD 后，按叙事时间点 story_order 投影当前生效集。只读。"""
@@ -11,14 +13,8 @@ def state_at(conn: sqlite3.Connection, story_order: int) -> dict:
             "AND (story_order IS NULL OR story_order <= ?)", (story_order,)):
         props = json.loads(r["props"])
         flat = {f"{g}_{k}": v for g, gv in props.items() for k, v in gv.items()}
-        death = props.get("core", {}).get("death_beat")
-        if death is not None:
-            dso = conn.execute("SELECT story_order, active FROM nodes WHERE id=?",
-                               (death,)).fetchone()
-            if (dso and dso["active"] == 1
-                    and dso["story_order"] is not None
-                    and dso["story_order"] <= story_order):
-                continue
+        if deathbeat.is_dead(conn, r, story_order):
+            continue
         nodes.append({**dict(r), **flat})
     edges = [dict(r) for r in conn.execute(
         """SELECT * FROM edges
@@ -57,18 +53,36 @@ def edges_of(conn: sqlite3.Connection, node_id: str, direction: str = "both") ->
 
 
 def descendants(conn: sqlite3.Connection, node_id: str,
-                kinds: list[str] | None = None, max_depth: int = 10) -> list:
-    # kinds 参数保留签名不消费——按 kind 过滤边属级联检查计划的需求（YAGNI）
-    return conn.execute("""
+                kinds: list[str] | None = None, max_depth: int = 10,
+                at_story_order: int | None = None) -> list:
+    """L4：kinds=边 kind 白名单（None 全部）；at_story_order=边时效过滤
+    （valid_from/until 覆盖该拍才可通行，None 不限）。默认行为不变。
+    谓词推入递归 CTE 两臂（锚点与递归臂），遍历中过滤。"""
+
+    def _edge_pred(alias: str) -> tuple[str, list]:
+        pred, args = "", []
+        if kinds is not None:
+            pred += f" AND {alias}.kind IN ({','.join('?' * len(kinds))})"
+            args += kinds
+        if at_story_order is not None:
+            pred += (f" AND ({alias}.valid_from IS NULL OR {alias}.valid_from <= ?)"
+                     f" AND ({alias}.valid_until IS NULL OR {alias}.valid_until >= ?)")
+            args += [at_story_order, at_story_order]
+        return pred, args
+
+    anchor_pred, anchor_args = _edge_pred("edges")
+    rec_pred, rec_args = _edge_pred("e")
+    return conn.execute(f"""
         WITH RECURSIVE walk(id, depth) AS (
-            SELECT dst, 1 FROM edges WHERE src=?
+            SELECT dst, 1 FROM edges WHERE src=?{anchor_pred}
             UNION
             SELECT e.dst, walk.depth+1 FROM edges e
-            JOIN walk ON e.src = walk.id WHERE walk.depth < ?
+            JOIN walk ON e.src = walk.id
+            WHERE walk.depth < ?{rec_pred}
         )
         SELECT DISTINCT n.* FROM walk JOIN nodes n ON n.id = walk.id
         WHERE n.active=1 AND n.id != ?
-    """, (node_id, max_depth, node_id)).fetchall()
+    """, [node_id, *anchor_args, max_depth, *rec_args, node_id]).fetchall()
 
 
 def graph_stats(conn: sqlite3.Connection) -> dict:
