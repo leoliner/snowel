@@ -350,6 +350,21 @@ def create_app(project_root: str | Path,
         """已封卷列表（冻结线警告面）。"""
         return request.app.state.api.sealed_volumes()
 
+    @app.get("/api/stats/{stat}")
+    async def stats(request: Request, stat: str) -> dict:
+        """统计四件（W4）：pov/foreshadow/relations/pacing 一比一转发门面；
+        未知统计项 → 404。只读端点不挂写守卫（只读降级读不限）。"""
+        api = request.app.state.api
+        if stat == "pov":
+            return api.stats_pov()
+        if stat == "foreshadow":
+            return api.stats_foreshadow()
+        if stat == "relations":
+            return api.stats_relations()
+        if stat == "pacing":
+            return api.stats_pacing()
+        raise HTTPException(status_code=404, detail=f"未知统计项: {stat}")
+
     dist = Path(static_dir) if static_dir is not None else _DEFAULT_DIST
     if dist.is_dir():
         app.mount("/", _SpaStaticFiles(directory=dist, html=True), name="static")

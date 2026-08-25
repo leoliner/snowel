@@ -63,6 +63,19 @@ class SnowelAPI:
     def graph_stats(self) -> dict:
         return queries.graph_stats(self._conn)
 
+    # 统计四件（W4 可视化数据面，铁律 1：纯统计留在 core）
+    def stats_pov(self) -> dict:
+        return queries.stats_pov(self._conn)
+
+    def stats_foreshadow(self) -> dict:
+        return queries.stats_foreshadow(self._conn)
+
+    def stats_relations(self) -> dict:
+        return queries.stats_relations(self._conn)
+
+    def stats_pacing(self) -> dict:
+        return queries.stats_pacing(self._conn)
+
     def rebuild(self):
         _rebuild(self._conn)
 

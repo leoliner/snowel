@@ -507,3 +507,98 @@ async def test_web_confirm_visible_from_separate_handle(project):  # TC-SH-03
         assert other.proposals.get(pid)["status"] == "confirmed"
     finally:
         other.close()
+
+
+# ---- Task 7（W4）：统计四件端点（GET /api/stats/{stat}，一比一转发）----
+
+def _seed_stats(project):
+    """统计种子：双 POV 章/场/拍 + 三态伏笔 + 角色边 + 章正文（段镜像）。"""
+    api = SnowelAPI.open(project)
+    _seed_event(api, [
+        {"fact": "node", "id": "v1", "types": ["Volume"], "name": "卷一",
+         "props": {"address": {"volume": 1}}},
+        {"fact": "node", "id": "ch1", "types": ["Chapter"], "name": "第一章",
+         "props": {"address": {"volume": 1, "chapter": 1},
+                   "pov": {"name": "江晚"}}},
+        {"fact": "node", "id": "ch2", "types": ["Chapter"], "name": "第二章",
+         "props": {"address": {"volume": 1, "chapter": 2},
+                   "pov": {"name": "沈眠"}}},
+        {"fact": "node", "id": "s1", "types": ["Scene"], "name": "场景一",
+         "props": {"address": {"volume": 1, "chapter": 1, "scene": 1},
+                   "pov": {"name": "沈眠"}}},
+        {"fact": "node", "id": "mb1", "types": ["MicroBeat"], "name": "拍一",
+         "props": {"address": {"volume": 1, "chapter": 1, "scene": 1, "beat": 1},
+                   "pov": {"name": "江晚"}}},
+        {"fact": "node", "id": "mb2", "types": ["MicroBeat"], "name": "拍二",
+         "props": {"address": {"volume": 1, "chapter": 1, "scene": 1, "beat": 2}}},
+        {"fact": "node", "id": "f1", "types": ["Foreshadow"], "name": "怀表",
+         "props": {"foreshadow": {"planted_at": "mb1", "origin": "author",
+                                  "payoff_beat": None, "note": ""}}},
+        {"fact": "node", "id": "f2", "types": ["Foreshadow"], "name": "铜币",
+         "props": {"foreshadow": {"planted_at": "mb1", "origin": "author",
+                                  "payoff_beat": "mb2", "note": ""}}},
+        {"fact": "node", "id": "f3", "types": ["Foreshadow"], "name": "钥匙",
+         "props": {"foreshadow": {"planted_at": "mb1", "origin": "author",
+                                  "payoff_beat": "mb9", "note": ""}}},
+        {"fact": "node", "id": "a", "types": ["Character"], "name": "江晚",
+         "props": {}},
+        {"fact": "node", "id": "b", "types": ["Character"], "name": "沈眠",
+         "props": {}},
+        {"fact": "edge", "id": "e1", "src": "a", "dst": "b", "kind": "KNOWS",
+         "props": {}},
+    ])
+    mirror.write_prose(api._conn, project, "ch1", "段一\n\n段二")
+    api.close()
+
+
+async def test_stats_pov_endpoint(project):
+    _seed_stats(project)
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        body = (await c.get("/api/stats/pov")).json()
+    by_volume = {v["volume_id"]: v for v in body["by_volume"]}
+    assert by_volume["v1"]["volume_name"] == "卷一"
+    assert by_volume["v1"]["counts"] == {"江晚": 2, "沈眠": 2}
+
+
+async def test_stats_foreshadow_endpoint(project):
+    _seed_stats(project)
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        body = (await c.get("/api/stats/foreshadow")).json()
+    items = {it["id"]: it for it in body["items"]}
+    assert items["f1"]["status"] == "planted"
+    assert items["f2"]["status"] == "paid"
+    assert items["f3"]["status"] == "stale"
+    assert items["f2"]["payoff_beat"] == "mb2"
+
+
+async def test_stats_relations_endpoint(project):
+    _seed_stats(project)
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        body = (await c.get("/api/stats/relations")).json()
+    assert {n["id"] for n in body["nodes"]} == {"a", "b"}
+    assert [e["id"] for e in body["edges"]] == ["e1"]
+    assert body["edges"][0]["kind"] == "KNOWS"
+
+
+async def test_stats_pacing_endpoint(project):
+    _seed_stats(project)
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        body = (await c.get("/api/stats/pacing")).json()
+    by_id = {c["chapter_id"]: c for c in body["chapters"]}
+    assert by_id["ch1"]["beats"] == 2 and by_id["ch1"]["paragraphs"] == 2
+    assert by_id["ch2"]["beats"] == 0 and by_id["ch2"]["paragraphs"] == 0
+
+
+async def test_stats_invalid_name_404(project):
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        assert (await c.get("/api/stats/nope")).status_code == 404
