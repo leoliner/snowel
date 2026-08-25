@@ -1,10 +1,15 @@
 // 三栏布局壳（ui-design-01 §3）：顶栏 + 左流程树 / 中正文 / 右工作区+聊天。
-// 子栏内容为占位 stub（T10 FlowTree / T11 ProseEditor / T12 ChatSidebar 实现）；
+// 子栏内容：T10 FlowTree / ProposalList / ProposalPanel / GenerateForm 已接线，
+// 中栏 ProseEditor（T11）与聊天 ChatSidebar（T12）为占位 stub；
 // 数据获取统一走 useApi（§5.1 骨架屏 / §5.3 错误红条）。
 import { useState } from 'react'
 import { useApi } from './api'
 import type { Session } from './types'
 import SessionBanner from './components/SessionBanner'
+import FlowTree from './components/FlowTree'
+import ProposalList from './components/ProposalList'
+import ProposalPanel from './components/ProposalPanel'
+import GenerateForm from './components/GenerateForm'
 
 function Skeleton({ className = 'h-4' }: { className?: string }) {
   return <div data-testid="skeleton" className={`skeleton ${className}`} />
@@ -13,6 +18,7 @@ function Skeleton({ className = 'h-4' }: { className?: string }) {
 export default function App() {
   const session = useApi<Session>('/api/session')
   const [chatCollapsed, setChatCollapsed] = useState(false)
+  const [selectedPid, setSelectedPid] = useState<string | null>(null)
 
   const data = session.data
   const readonly = data?.readonly ?? false
@@ -70,7 +76,7 @@ export default function App() {
               <Skeleton />
             </div>
           ) : (
-            <div className="text-sm text-muted">流程树（T10 实现）</div>
+            <FlowTree readonly={readonly} />
           )}
         </aside>
 
@@ -106,8 +112,13 @@ export default function App() {
                 <Skeleton className="h-16" />
               </div>
             ) : (
-              <div className="text-sm text-muted">
-                工作区 tab：提案 / 可视化（T10/T13 实现）
+              <div className="flex flex-col gap-3">
+                <GenerateForm readonly={readonly} onGenerated={setSelectedPid} />
+                <ProposalList
+                  selectedId={selectedPid}
+                  onSelect={(p) => setSelectedPid(p.id)}
+                />
+                <ProposalPanel proposalId={selectedPid} readonly={readonly} />
               </div>
             )}
           </div>

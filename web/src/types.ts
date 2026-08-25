@@ -67,13 +67,56 @@ export interface Proposal {
 
 export type ViolationLevel = 'major' | 'minor'
 
+// 级联违规 detail：矛盾项 diff 三元组（consistency/rules.py contradiction）
+export interface ViolationDetail {
+  node_id?: string
+  key?: string
+  old?: unknown
+  new?: unknown
+}
+
 // 级联检查违规（consistency/engine.py）
 export interface Violation {
   level: ViolationLevel
   rule: string
   message: string
   refs: string[]
-  detail?: string
+  detail?: ViolationDetail
+}
+
+// 确认/预演响应（wiring.preview / finalize）：violations + major 矛盾 diff 条目
+export interface DiffEntry extends ViolationDetail {
+  refs?: string[]
+}
+export interface CascadePreviewResult {
+  tier: string
+  violations: Violation[]
+  diff_preview: DiffEntry[]
+}
+export interface CascadeResult {
+  tier: string
+  violations: Violation[]
+  cascade_proposal_id: string | null
+}
+
+// POST /api/proposals/{pid}/confirm(confirm_retcon) → seq + 最近级联
+export interface ConfirmResult {
+  seq: number
+  cascade: CascadeResult | null
+}
+
+// GET /api/reconcile：正文镜像对账（changed/missing 清单，status 见 mirror.py）
+export interface ReconcileEntry {
+  chapter_id: string
+  status: string
+}
+
+export interface GenerateResult {
+  proposal_id: string
+}
+
+export interface RewriteResult {
+  proposal_id: string
 }
 
 // 聊天 SSE 事件（llm/chat.py + web_server 流内 error）
