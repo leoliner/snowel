@@ -57,6 +57,9 @@ def _retcon_applied(tx, payload, seq):
         tx.execute("UPDATE nodes SET name=? WHERE id=?", (r["new_name"], r["node_id"]))
         tx.execute("INSERT OR IGNORE INTO alias(node_id, alias, source) VALUES(?,?,?)",
                    (r["node_id"], r["old_name"], "retcon"))
+    for t in payload.get("track_updates", []):  # P3：retcon 即合法改轨路径
+        tx.execute("UPDATE tracks SET definition=? WHERE id=?",
+                   (json.dumps(t["definition"], ensure_ascii=False), t["track_id"]))
 
 def _completeness_override(tx, payload, seq):
     tx.execute("UPDATE nodes SET completeness=? WHERE id=?",

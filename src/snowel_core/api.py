@@ -177,10 +177,15 @@ class SnowelAPI:
                 events.append_event(self._conn, "revision_applied", {
                     "structure_changes": payload.get("structure_changes", [])})
                 projector.apply(self._conn)
-            # C5（revision 面）：pending 全标 stale，受影响分析归级联检查计划
-            for row in self.proposals.list(status="pending"):
-                self.proposals.mark_stale(
-                    row["id"],
+            # C5（revision 面，P4 精确）：变更触及节点 id ∩ pending 提案 payload
+            # 含该 id → 只标受影响提案（替代 T17 全 pending 保守标记，L14 单事务批量）
+            from .consistency import retcon
+            node_ids = {ch["node_id"] for ch in payload.get("structure_changes", [])
+                        if ch.get("node_id")}
+            pids = retcon.affected_pending(self._conn, node_ids)
+            if pids:
+                retcon.mark_stale_batch(
+                    self._conn, pids,
                     f"上游 revision：{payload.get('node_id', '')} 结构变更")
         self._last_cascade = None
         if pre_violations is not None:  # 事务后收尾：major 矛盾产 diff 提案
@@ -267,3 +272,15 @@ class SnowelAPI:
         return [dict(r) for r in self._conn.execute(
             "SELECT volume_id, sealed_seq FROM sealed_volumes "
             "ORDER BY sealed_seq")]
+
+    # 显式 retcon（C7 冻结线合法通道，TC-CC-07）：propose 全量级联 → 专属确认
+    def propose_retcon(self, facts=None, renames=None, track_updates=None,
+                       reason: str = "") -> dict:
+        """创建 kind="retcon" 提案（payload 携带影响清单），创建时跑全量级联（P5）。"""
+        from .consistency import retcon
+        return retcon.propose_retcon(self, facts, renames, track_updates, reason)
+
+    def confirm_retcon(self, proposal_id: str) -> int:
+        """retcon 专属确认（冻结线豁免）：单事务双事件物化 + 事务后 C5 精确 stale。"""
+        from .consistency import retcon
+        return retcon.confirm_retcon(self, proposal_id)
