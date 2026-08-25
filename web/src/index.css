@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- 全局基线（ui-design-01 §2/§3/§5.10） ---- */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-base font-ui text-primary antialiased;
+  color-scheme: dark;
+}
+
+/* 焦点环（§5.10）：1px accent outline，键盘可达 */
+:focus-visible {
+  outline: 1px solid theme('colors.accent');
+  outline-offset: 2px;
+}
+
+/* 暗色滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: theme('colors.border') theme('colors.base');
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: theme('colors.base');
+}
+::-webkit-scrollbar-thumb {
+  background: theme('colors.border');
+  border-radius: 5px;
+}
+
+/* 骨架屏（§5.1）：bg-raised 圆角块 + shimmer 高光扫过（1.2s，§2.3） */
+@layer utilities {
+  .skeleton {
+    @apply rounded animate-shimmer;
+    background-color: theme('colors.raised');
+    background-image: linear-gradient(
+      90deg,
+      theme('colors.raised') 25%,
+      theme('colors.panel') 50%,
+      theme('colors.raised') 75%
+    );
+    background-size: 200% 100%;
+  }
+}
