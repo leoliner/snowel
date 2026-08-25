@@ -46,7 +46,7 @@ def _query_expr(q: str) -> str:
     return " AND ".join(f'"{t}"*' for t in tokenize(q).split()[:8])
 
 
-def search(conn: sqlite3.Connection, q: str, limit: int = 20) -> dict:
+def search(conn: sqlite3.Connection, q: str, limit: int = 100) -> dict:
     expr = _query_expr(q)
     if not expr:
         return {"nodes": [], "paragraphs": []}

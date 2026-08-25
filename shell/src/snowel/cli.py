@@ -143,5 +143,26 @@ def seal(project: ProjectOpt = None,
         ctx.close()
 
 
+@app.command()
+def web(project: ProjectOpt = None,
+        host: Annotated[str, typer.Option(
+            "--host", help="监听地址（默认 127.0.0.1）")] = "127.0.0.1",
+        port: Annotated[int, typer.Option(
+            "--port", help="监听端口（默认 8642）")] = 8642) -> None:
+    """启动 Web 创作界面（FastAPI + 项目绑定，抢写租约失败降级只读）。"""
+    import uvicorn
+
+    from snowel.web_server import create_app
+
+    p = _resolve(project)
+    if not (p / "snowel.db").exists():
+        typer.secho(
+            f"目录不是 Snowel 项目（未找到 {p / 'snowel.db'}）；"
+            f"请先运行 snowel init，或用 --project / SNOWEL_PROJECT 指定正确目录",
+            err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    uvicorn.run(create_app(p), host=host, port=port)
+
+
 def main() -> None:
     app()

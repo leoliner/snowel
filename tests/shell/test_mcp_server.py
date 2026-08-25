@@ -313,6 +313,21 @@ async def test_confirm_response_carries_cascade(project):
                    for v in done["cascade"]["violations"])
 
 
+async def test_proposal_confirm_dispatches_retcon(project):  # retcon 专属确认分派协议锚
+    async with _connected(project) as (ctx, client):
+        r = await _call(client, "snowel_writeback", {
+            "action": "retcon",
+            "params": {"facts": [{"fact": "node", "id": "m1",
+                                  "types": ["Mechanism"], "name": "积分兑换",
+                                  "props": {}}], "reason": "测试"}})
+        done = await _call(client, "snowel_proposal", {
+            "action": "confirm", "proposal_id": r["proposal_id"]})
+        # 错路由到 api.confirm 时 core 抛错 → 本调用即红；断言确认面数据
+        assert done["event_seq"] >= 1
+        assert done["cascade"]["tier"] == "full"
+        assert "violations" in done["cascade"]
+
+
 async def test_write_rejected_when_readonly(project):  # TC-SH-04 壳层
     api = SnowelAPI.open(project)
     pid = api.proposals.create("scene", {"facts": FACTS})

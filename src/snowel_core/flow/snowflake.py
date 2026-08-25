@@ -52,7 +52,7 @@ def volume_start_state(conn, volume_id: str) -> dict:
         if "Foreshadow" in types and unrecovered(conn, n, end):
             foreshadows.append(n["name"])  # 已回收（payoff ≤ end）剔除
     dead = []  # 死亡名单：deathbeat 统一口径（L13：死亡拍停用 → 保守存活）
-    for r in conn.execute("SELECT name, props FROM nodes WHERE active=1"):
+    for r in conn.execute("SELECT id, props, name FROM nodes WHERE active=1"):
         if deathbeat.is_dead(conn, r, end):
             dead.append(r["name"])
     return {"story_order": end, "alive": alive, "dead": dead,

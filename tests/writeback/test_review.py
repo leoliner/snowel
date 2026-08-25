@@ -30,7 +30,7 @@ def test_reject_auto_retracts_and_reports_references(api, tmp_path):  # TC-WB-07
     _auto_rule(api, tmp_path)
     r = review.reject_auto(api._conn, [("node", "n-rule")], reason="抽取错了")
     assert r["retracted"] == 1
-    assert api.get_node("n-rule")["active"] == 0          # 物化图立即失效（C2）
+    assert api.get_node("n-rule", active_only=False)["active"] == 0  # 物化图立即失效（C2）
     ev = api._conn.execute(
         "SELECT payload FROM events WHERE kind='retraction'").fetchone()
     p = json.loads(ev["payload"])

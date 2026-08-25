@@ -1,6 +1,7 @@
 # src/snowel_core/api.py
 import json
 from pathlib import Path
+from typing import Iterator
 
 from .proposal.queue import ProposalQueue
 from .storage import db, events, lease, projector, queries, vec
@@ -45,20 +46,35 @@ class SnowelAPI:
     def state_at(self, story_order: int):
         return queries.state_at(self._conn, story_order)
 
-    def get_node(self, node_id):
-        return queries.get_node(self._conn, node_id)
+    def get_node(self, node_id, active_only=True):
+        """节点反查（L17：默认仅活跃实体；读撤回行显式传 active_only=False）。"""
+        return queries.get_node(self._conn, node_id, active_only)
 
     def find_nodes(self, name=None, type=None):
         return queries.find_nodes(self._conn, name, type)
 
-    def edges_of(self, node_id, direction="both"):
-        return queries.edges_of(self._conn, node_id, direction)
+    def edges_of(self, node_id, direction="both", active_only=True):
+        """关联边反查（L17：默认仅两端均活跃的边；读撤回行显式传 active_only=False）。"""
+        return queries.edges_of(self._conn, node_id, direction, active_only)
 
     def descendants(self, node_id, kinds=None, max_depth=10):
         return queries.descendants(self._conn, node_id, kinds, max_depth)
 
     def graph_stats(self) -> dict:
         return queries.graph_stats(self._conn)
+
+    # 统计四件（W4 可视化数据面，铁律 1：纯统计留在 core）
+    def stats_pov(self) -> dict:
+        return queries.stats_pov(self._conn)
+
+    def stats_foreshadow(self) -> dict:
+        return queries.stats_foreshadow(self._conn)
+
+    def stats_relations(self) -> dict:
+        return queries.stats_relations(self._conn)
+
+    def stats_pacing(self) -> dict:
+        return queries.stats_pacing(self._conn)
 
     def rebuild(self):
         _rebuild(self._conn)
@@ -80,6 +96,13 @@ class SnowelAPI:
     def export_prose(self) -> list[dict]:
         return [dict(r) for r in self._conn.execute(
             "SELECT chapter_id, prose FROM chapter_prose ORDER BY chapter_id")]
+
+    # 按章正文（T11 加载面）：镜像水化全文，无行 → None
+    def chapter_prose(self, chapter_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT prose FROM chapter_prose WHERE chapter_id=?",
+            (chapter_id,)).fetchone()
+        return row["prose"] if row is not None else None
 
     # 流程状态（FL-03）
     def flow_state(self) -> dict:
@@ -237,9 +260,14 @@ class SnowelAPI:
         return _port(self, chapter_id, backend, model=model)
 
     # 对账/手动抽取门面（§3.3，P4 三模式通用）
-    def reconcile_prose(self) -> list:
+    def reconcile_prose(self, dry_run: bool = False) -> list:
+        """正文镜像对账（D8）：文件是真相源，哈希不一致以文件为准重灌镜像。
+
+        dry_run=True 只收集 changed/missing 清单不写库（Web 只读对账状态
+        用，F2：readonly 会话不得写库）；MCP 写动作走默认 dry_run=False。
+        """
         from .writeback import mirror
-        return mirror.reconcile(self._conn, self._root)
+        return mirror.reconcile(self._conn, self._root, dry_run=dry_run)
 
     def trigger_extract(self, chapter_id: str, backend=None, model=None):
         backend = backend or _default_llm(self._conn)
@@ -316,3 +344,16 @@ class SnowelAPI:
         from .consistency import foreshadow
         return foreshadow.register(self, name, planted_at, origin,
                                    payoff_beat, note)
+
+    # 聊天代理（W1/W6）：JSON 指令循环；工具白名单不含确认类（§7.1 红线）
+    def chat(self, message: str, history=None, backend=None,
+             max_turns: int = 8) -> dict:
+        """非流式聚合门面：{"events": [除 done 外全部事件], "proposal_ids": [...]}。"""
+        from .llm import chat
+        return chat.run(self, message, history, backend, max_turns)
+
+    def chat_stream(self, message: str, history=None, backend=None,
+                    max_turns: int = 8) -> Iterator[dict]:
+        """流式门面：同步生成器逐事件 yield，末事件 done 携带 proposal_ids。"""
+        from .llm import chat
+        return chat.run_stream(self, message, history, backend, max_turns)

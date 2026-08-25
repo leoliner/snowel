@@ -50,6 +50,9 @@ def dependents(change: dict, conn: sqlite3.Connection) -> list[dict]:
     retraction 变更（C11 轻量下游级联提示）：fact 携带 {target, target_id}——
     target=node 按被撤节点当前名反查边与正文；target=edge 反查该边两端
     （被撤边自身不计）。
+    提示面口径（L17）：边与节点名反查默认仅活跃实体（已撤回对端不算
+    "既有依赖"）；retraction 反查的是被撤条目自身——撤销后行 active=0，
+    显式关闭 active_only 过滤，前 canon 仍可读（C11 命中不丢）。
     只读物化与索引表不阻断；无任何引用 → 无 Violation。
     """
     fact = change.get("fact", {})
@@ -79,10 +82,13 @@ def dependents(change: dict, conn: sqlite3.Connection) -> list[dict]:
     else:
         return []
     edges, peer_ids = {}, []
+    # L17：默认仅活跃实体（提示面）；retraction 反查被撤条目自身（active=0）→
+    # 显式关闭过滤，其边与当前名（前 canon）照常命中（C11）
+    active_only = not retracted
     for nid in ends:
         if not nid:
             continue
-        for e in queries.edges_of(conn, nid):
+        for e in queries.edges_of(conn, nid, active_only=active_only):
             if e["id"] == skip:
                 continue
             edges[e["id"]] = e
@@ -91,7 +97,7 @@ def dependents(change: dict, conn: sqlite3.Connection) -> list[dict]:
                 peer_ids.append(peer)
     for nid in ends:  # 两端节点名并入正文搜索（node 变更换名时旧名也反查）
         if nid:
-            row = queries.get_node(conn, nid)
+            row = queries.get_node(conn, nid, active_only=active_only)
             if row is not None:
                 search_names.add(row["name"])
     peer_names = [r["name"] for r in conn.execute(
