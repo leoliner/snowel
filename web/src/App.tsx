@@ -1,8 +1,9 @@
 // 三栏布局壳（ui-design-01 §3）：顶栏 + 左流程树 / 中正文 / 右工作区+聊天。
 // 子栏内容：T10 FlowTree / ProposalList / ProposalPanel / GenerateForm 已接线，
-// 中栏 ProseEditor（T11，选中章经 App 状态与 FlowTree onSelectChapter 联动）
-// 与聊天 ChatSidebar（T12）为占位 stub；
+// 中栏 ProseEditor（T11）与聊天 ChatSidebar（T12，SSE 流式 + 打字机）；
 // 数据获取统一走 useApi（§5.1 骨架屏 / §5.3 错误红条）。
+// refreshKey（T12 遗留清偿）：聊天入队提案/确认否决后递增，
+// 驱动 ProposalList/FlowTree 以新 key 重拉（T10 遗留③）。
 import { useState } from 'react'
 import { useApi } from './api'
 import type { Session } from './types'
@@ -12,6 +13,7 @@ import ProposalList from './components/ProposalList'
 import ProposalPanel from './components/ProposalPanel'
 import GenerateForm from './components/GenerateForm'
 import ProseEditor from './components/ProseEditor'
+import ChatSidebar from './components/ChatSidebar'
 
 function Skeleton({ className = 'h-4' }: { className?: string }) {
   return <div data-testid="skeleton" className={`skeleton ${className}`} />
@@ -23,6 +25,8 @@ export default function App() {
   const [selectedPid, setSelectedPid] = useState<string | null>(null)
   // 当前选中章（T11）：FlowTree / ProseEditor 章节点击双端经此联动，顶栏展示
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null)
+  // T12 遗留清偿：聊天/面板变更后递增，触发列表与流程树重拉
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const data = session.data
   const readonly = data?.readonly ?? false
@@ -86,6 +90,7 @@ export default function App() {
           ) : (
             <FlowTree
               readonly={readonly}
+              refreshKey={refreshKey}
               onSelectChapter={(ch) => setSelectedChapterId(ch.id)}
             />
           )}
@@ -131,9 +136,14 @@ export default function App() {
                 <GenerateForm readonly={readonly} onGenerated={setSelectedPid} />
                 <ProposalList
                   selectedId={selectedPid}
+                  refreshKey={refreshKey}
                   onSelect={(p) => setSelectedPid(p.id)}
                 />
-                <ProposalPanel proposalId={selectedPid} readonly={readonly} />
+                <ProposalPanel
+                  proposalId={selectedPid}
+                  readonly={readonly}
+                  onMutated={() => setRefreshKey((k) => k + 1)}
+                />
               </div>
             )}
           </div>
@@ -155,9 +165,10 @@ export default function App() {
                 </button>
               </div>
               {!chatCollapsed && (
-                <div className="min-h-0 flex-1 overflow-y-auto p-3 text-sm text-muted">
-                  聊天侧栏（T12 实现）——在这里说出你的想法
-                </div>
+                <ChatSidebar
+                  readonly={readonly}
+                  onGoProposals={() => setRefreshKey((k) => k + 1)}
+                />
               )}
             </div>
           </div>

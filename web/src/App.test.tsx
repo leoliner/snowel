@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import App from './App'
 import { useApi } from './api'
+import { streamSSE } from './sse'
 import type { Session } from './types'
 
 // 数据层整体 mock：App 壳测试不触网络（真实 api 面由 T10–T13 组件测试覆盖）
@@ -9,6 +10,8 @@ vi.mock('./api', () => ({
   useApi: vi.fn(),
   api: { get: vi.fn(), post: vi.fn() },
 }))
+// 聊天流 mock：App 壳测试不发真实 SSE 请求
+vi.mock('./sse', () => ({ streamSSE: vi.fn() }))
 
 const mockUseApi = vi.mocked(useApi)
 
@@ -86,5 +89,29 @@ describe('useApi 加载/错误态（ui-design-01 §5.1/§5.3）', () => {
     mockSession(null, false, '网络失败：后端未启动')
     render(<App />)
     expect(screen.getByTestId('error-bar')).toHaveTextContent('网络失败：后端未启动')
+  })
+})
+
+describe('T12 遗留：聊天入队提案 → 去确认刷新流程树/提案列表（refreshKey）', () => {
+  it('聊天 done 入队 → 点"去确认"链接 → ProposalList/FlowTree useApi 以新 key 重拉', async () => {
+    mockSession(writableSession)
+    vi.mocked(streamSSE).mockImplementation(async (_url, _body, onEvent) => {
+      onEvent({ type: 'done', proposal_ids: ['p1'] })
+    })
+    render(<App />)
+    const flowCalls = () => mockUseApi.mock.calls.filter((c) => c[0] === '/api/flow').length
+    const listCalls = () => mockUseApi.mock.calls.filter((c) => c[0] === '/api/proposals').length
+    const beforeFlow = flowCalls()
+    const beforeList = listCalls()
+
+    fireEvent.change(screen.getByLabelText('聊天消息'), { target: { value: '生成提案' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    fireEvent.click(await screen.findByRole('button', { name: /已入队 1 个提案/ }))
+
+    // refreshKey 递增 → 消费方以新 key 重拉（/api/flow 另有 ProseEditor 消费，仅断增量）
+    await waitFor(() => {
+      expect(flowCalls()).toBeGreaterThan(beforeFlow)
+      expect(listCalls()).toBeGreaterThan(beforeList)
+    })
   })
 })

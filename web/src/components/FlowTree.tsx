@@ -9,10 +9,12 @@ import ConfirmDialog from './ConfirmDialog'
 interface FlowTreeProps {
   readonly?: boolean
   onSelectChapter?: (chapter: Chapter) => void
+  // T12：外部刷新信号（聊天入队提案/确认否决后重拉流程状态）
+  refreshKey?: number
 }
 
-export default function FlowTree({ readonly = false, onSelectChapter }: FlowTreeProps) {
-  const { data, loading, error } = useApi<FlowState>('/api/flow')
+export default function FlowTree({ readonly = false, onSelectChapter, refreshKey = 0 }: FlowTreeProps) {
+  const { data, loading, error } = useApi<FlowState>('/api/flow', refreshKey)
   const [sealVolume, setSealVolume] = useState<Volume | null>(null)
   const [sealing, setSealing] = useState(false)
   const [sealError, setSealError] = useState<string | null>(null)

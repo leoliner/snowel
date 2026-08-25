@@ -8,6 +8,8 @@ import { KIND_LABELS } from './labels'
 interface ProposalListProps {
   onSelect: (proposal: Proposal) => void
   selectedId?: string | null
+  // T12：外部刷新信号（聊天入队提案/确认否决后重拉列表）
+  refreshKey?: number
 }
 
 type TabKey = 'pending' | 'confirmed' | 'rejected' | 'all'
@@ -26,8 +28,8 @@ const STATUS_CHIP: Record<string, string> = {
   rejected: 'bg-danger/15 text-danger',
 }
 
-export default function ProposalList({ onSelect, selectedId = null }: ProposalListProps) {
-  const { data, loading, error } = useApi<Proposal[]>('/api/proposals')
+export default function ProposalList({ onSelect, selectedId = null, refreshKey = 0 }: ProposalListProps) {
+  const { data, loading, error } = useApi<Proposal[]>('/api/proposals', refreshKey)
   const [tabKey, setTabKey] = useState<TabKey>('pending')
 
   if (loading) {

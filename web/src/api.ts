@@ -35,8 +35,9 @@ export interface UseApiResult<T> {
   error: string | null
 }
 
-// 简易数据获取 hook（ui-design-01 §5.1）：loading 骨架屏态 / error 态
-export function useApi<T = unknown>(path: string): UseApiResult<T> {
+// 简易数据获取 hook（ui-design-01 §5.1）：loading 骨架屏态 / error 态；
+// refreshKey 变化（T12 聊天入队提案 / 确认否决后）触发重拉，key 并入依赖。
+export function useApi<T = unknown>(path: string, refreshKey = 0): UseApiResult<T> {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -60,7 +61,7 @@ export function useApi<T = unknown>(path: string): UseApiResult<T> {
     return () => {
       cancelled = true
     }
-  }, [path])
+  }, [path, refreshKey])
 
   return { data, loading, error }
 }

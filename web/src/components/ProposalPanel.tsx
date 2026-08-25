@@ -12,6 +12,8 @@ import ConfirmDialog from './ConfirmDialog'
 interface ProposalPanelProps {
   proposalId: string | null
   readonly?: boolean
+  // T12 遗留清偿：确认/否决/改写成功后通知父级刷新列表与流程树
+  onMutated?: () => void
 }
 
 // retcon 提案 payload 内嵌影响清单（consistency/retcon.py propose_retcon）
@@ -49,7 +51,11 @@ export function ViolationList({ violations }: { violations: Violation[] }) {
   )
 }
 
-function ProposalPanelInner({ proposalId, readonly }: { proposalId: string; readonly: boolean }) {
+function ProposalPanelInner({ proposalId, readonly, onMutated }: {
+  proposalId: string
+  readonly: boolean
+  onMutated?: () => void
+}) {
   const { data: detail, loading, error } = useApi<Proposal>(`/api/proposals/${proposalId}`)
   const { data: preview } = useApi<CascadePreviewResult>(
     `/api/proposals/${proposalId}/cascade_preview`)
@@ -124,6 +130,7 @@ function ProposalPanelInner({ proposalId, readonly }: { proposalId: string; read
       const res = await api.post<ConfirmResult>(`/api/proposals/${proposalId}/confirm`)
       setCascade(res.cascade)
       setConfirmed(true)
+      onMutated?.()
     })
   }
 
@@ -133,6 +140,7 @@ function ProposalPanelInner({ proposalId, readonly }: { proposalId: string; read
       const res = await api.post<ConfirmResult>(`/api/proposals/${proposalId}/confirm_retcon`)
       setCascade(res.cascade)
       setConfirmed(true)
+      onMutated?.()
     })
   }
 
@@ -141,6 +149,7 @@ function ProposalPanelInner({ proposalId, readonly }: { proposalId: string; read
     void run(async () => {
       await api.post(`/api/proposals/${proposalId}/reject`)
       setRejected(true)
+      onMutated?.()
     })
   }
 
@@ -151,6 +160,7 @@ function ProposalPanelInner({ proposalId, readonly }: { proposalId: string; read
       })
       setRewriteNote(`新提案 ${res.proposal_id} 已入队`)
       setInstruction('')
+      onMutated?.()
     })
   }
 
@@ -363,7 +373,7 @@ function ProposalPanelInner({ proposalId, readonly }: { proposalId: string; read
   )
 }
 
-export default function ProposalPanel({ proposalId, readonly = false }: ProposalPanelProps) {
+export default function ProposalPanel({ proposalId, readonly = false, onMutated }: ProposalPanelProps) {
   if (!proposalId) {
     return (
       <div className="rounded-card border border-border bg-raised/40 px-3 py-4 text-center text-sm text-muted">
@@ -371,5 +381,5 @@ export default function ProposalPanel({ proposalId, readonly = false }: Proposal
       </div>
     )
   }
-  return <ProposalPanelInner proposalId={proposalId} readonly={readonly} />
+  return <ProposalPanelInner proposalId={proposalId} readonly={readonly} onMutated={onMutated} />
 }
