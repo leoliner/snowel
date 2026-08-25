@@ -103,3 +103,11 @@ def test_extract_version_mismatch_forces_high(api, tmp_path):  # L1 降级消费
     ids = [f["id"] for f in json.loads(prop["payload"])["facts"]]
     assert ids == ["n-bad"]
     assert any("畸形" in w for w in r["warnings"])  # L1 降级警告记录在案
+
+
+def test_extract_zero_facts_preserves_appeared(api, tmp_path):  # L15：零事实章 appeared 保真
+    _prepare(api, tmp_path)
+    resp = json.dumps({"facts": [], "appeared": ["hero"]}, ensure_ascii=False)
+    r = api.extract_and_writeback("ch1", backend=FakeBackend([resp]))
+    assert r["proposal_id"] is None and r["auto_event_seq"] is None
+    assert r["appeared"] == ["hero"]            # 零事实路径不丢 appeared（回归锚）

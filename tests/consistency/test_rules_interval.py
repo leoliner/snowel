@@ -65,6 +65,32 @@ def test_growth_guardrail_warns_not_blocks(core_conn):  # TC-ON-16
     assert hit and hit[0]["level"] == "minor"      # 警告不阻断
 
 
+def test_retracted_edge_does_not_trigger_interval_overlap(core_conn):  # T5 微裁决：撤回哨兵排除
+    _seed(core_conn)
+    with db.transaction(core_conn):
+        events.append_event(core_conn, "retraction", {
+            "target": "edge", "target_id": "old1", "reason": "误抽",
+            "source": "auto_review"})
+    projector.apply(core_conn)
+    sentinel = core_conn.execute(
+        "SELECT valid_until FROM edges WHERE id='old1'").fetchone()
+    assert sentinel["valid_until"] == -1           # 前置条件：撤回边软删哨兵已物化
+    vs = engine.run(core_conn, [{"kind": "edge", "seq": 3, "fact": {
+        "id": "new2", "src": "a", "dst": "b", "kind": "PARTICIPATES",
+        "props": {"valid_from_beat": "mb5", "valid_until_beat": "mb9"}}}],
+        "full")
+    assert not [v for v in vs if v["rule"] == "interval_overlap"]  # 已撤回边不构成冲突
+
+
+def test_interval_overlap_top_level_beat_address_fallback(core_conn):  # T5 微裁决：props 优先、顶层兜底
+    _seed(core_conn)
+    vs = engine.run(core_conn, [{"kind": "edge", "seq": 2, "fact": {
+        "id": "new3", "src": "a", "dst": "b", "kind": "PARTICIPATES",
+        "valid_from_beat": "mb5", "valid_until_beat": "mb9"}}], "full")
+    hit = [v for v in vs if v["rule"] == "interval_overlap"]
+    assert hit and "old1" in hit[0]["refs"] and "new3" in hit[0]["refs"]
+
+
 def test_track_ratchet_frozen(core_conn):  # TC-ON-10 后半
     with db.transaction(core_conn):
         events.append_event(core_conn, "track_added", {

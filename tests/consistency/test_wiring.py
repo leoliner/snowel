@@ -106,3 +106,50 @@ def test_retraction_light_cascade_dependents(api, tmp_path):  # 修环 2：C11 �
     assert hit and "被撤回" in hit[0]["message"]
     assert "e1" in hit[0]["refs"] and "sys" in hit[0]["refs"]  # 边 + 对端反查
     assert any(ref.startswith("ch1:") for ref in hit[0]["refs"])  # 正文引用
+
+
+def _seed_interval(conn):
+    """TC-CC-04 接线锚共用种子：两端节点 + 拍节点 + 一条带有效期的既有边。"""
+    with db.transaction(conn):
+        events.append_event(conn, "proposal_confirmed", {
+            "artifact_type": "t", "facts": [
+                {"fact": "node", "id": "a", "types": ["Character"],
+                 "name": "a", "props": {}},
+                {"fact": "node", "id": "b", "types": ["Concept"],
+                 "name": "b", "props": {}},
+                {"fact": "node", "id": "mb1", "types": ["MicroBeat"],
+                 "name": "1", "props": {"address": {"volume": 1, "chapter": 1,
+                                                   "scene": 1, "beat": 1}}},
+                {"fact": "node", "id": "mb9", "types": ["MicroBeat"],
+                 "name": "9", "props": {"address": {"volume": 1, "chapter": 9,
+                                                   "scene": 1, "beat": 1}}},
+                {"fact": "edge", "id": "old1", "src": "a", "dst": "b",
+                 "kind": "PARTICIPATES",
+                 "props": {"valid_from_beat": "mb1",
+                           "valid_until_beat": "mb9"}}]})
+    projector.apply(conn)
+
+
+def test_confirm_wires_interval_overlap(api):  # TC-CC-04 接线面：区间检测经 confirm 统一跑
+    _seed_interval(api._conn)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "edge", "id": "new1", "src": "a", "dst": "b",
+         "kind": "PARTICIPATES",
+         "props": {"valid_from_beat": "mb1", "valid_until_beat": "mb1"}}]})
+    seq = api.confirm(pid)
+    assert seq > 0
+    last = api.last_cascade()
+    assert last["tier"] == "full"
+    hit = [v for v in last["violations"] if v["rule"] == "interval_overlap"]
+    assert hit and "old1" in hit[0]["refs"] and "new1" in hit[0]["refs"]
+
+
+def test_confirm_wires_growth_guardrail(api):  # TC-CC-04 接线面：增长护栏经 confirm 统一跑
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "g1", "types": ["Mechanism"], "name": "成长机制",
+         "props": {"mechanism": {"growth_curve": "exponential"}}}]})
+    seq = api.confirm(pid)
+    assert seq > 0
+    last = api.last_cascade()
+    assert any(v["rule"] == "growth_guardrail"
+               for v in last["violations"])   # minor 警告不阻断确认

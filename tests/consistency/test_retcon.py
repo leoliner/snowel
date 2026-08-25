@@ -124,3 +124,11 @@ def test_confirm_rejects_retcon_proposal(api, tmp_path):  # 通用确认拦截�
     with pytest.raises(ValueError, match="confirm_retcon"):
         api.confirm(out["proposal_id"])
     assert api.proposals.get(out["proposal_id"])["status"] == "pending"  # 未半应用
+
+
+def test_retcon_empty_changes_raises(api):  # 空 retcon 守卫：无任何变更拒绝建提案
+    with pytest.raises(ValueError, match="至少需要一项变更"):
+        retcon.propose_retcon(api)
+    with pytest.raises(ValueError, match="至少需要一项变更"):
+        retcon.propose_retcon(api, facts=[], renames=[], track_updates=[])
+    assert len(api.proposals.list("pending")) == 0   # 守卫拦截：无空提案入队

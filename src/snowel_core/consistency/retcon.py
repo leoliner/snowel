@@ -68,6 +68,8 @@ def propose_retcon(api, facts: list[dict] | None = None,
     返回 {"proposal_id", "impact"}；confirm_retcon 后不重跑分析。
     """
     facts, renames, track_updates = facts or [], renames or [], track_updates or []
+    if not (facts or renames or track_updates):
+        raise ValueError("retcon 至少需要一项变更（facts/renames/track_updates）")
     conn = api._conn
     seq = events.head_seq(conn)
     changes = wiring.change_set_from_facts(facts, seq)
