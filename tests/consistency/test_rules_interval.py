@@ -40,6 +40,23 @@ def test_interval_overlap_detected(core_conn):  # TC-CC-03
     assert hit and "old1" in hit[0]["refs"] and "new1" in hit[0]["refs"]
 
 
+def test_interval_overlap_open_ended_existing(core_conn):  # 回归：开区间既有边（valid_until NULL）
+    _seed(core_conn)
+    with db.transaction(core_conn):  # 既有边 [mb1, +∞)：NULL 不得被撤回哨兵滤掉
+        events.append_event(core_conn, "proposal_confirmed", {
+            "artifact_type": "t", "facts": [
+                {"fact": "edge", "id": "open1", "src": "a", "dst": "b",
+                 "kind": "PARTICIPATES", "props": {"valid_from_beat": "mb1"}}]})
+    projector.apply(core_conn)
+    vs = engine.run(core_conn, [{"kind": "edge", "seq": 3, "fact": {
+        "id": "new2", "src": "a", "dst": "b", "kind": "PARTICIPATES",
+        "props": {"valid_from_beat": "mb5", "valid_until_beat": "mb9"}}}],
+        "full")
+    hit = [v for v in vs if v["rule"] == "interval_overlap"
+           and "open1" in v["refs"]]
+    assert hit and "new2" in hit[0]["refs"]
+
+
 def test_growth_guardrail_warns_not_blocks(core_conn):  # TC-ON-16
     vs = engine.run(core_conn, [{"kind": "node", "seq": 1, "fact": {
         "id": "g1", "types": ["Mechanism"], "name": "成长机制",

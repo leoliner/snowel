@@ -122,7 +122,8 @@ def interval_overlap(change: dict, conn: sqlite3.Connection) -> list[dict]:
          "refs": [e["id"], fact["id"]]}
         for e in conn.execute(
             "SELECT id, valid_from, valid_until FROM edges "
-            "WHERE src=? AND dst=? AND kind=? AND id!=? AND valid_until!=-1",
+            "WHERE src=? AND dst=? AND kind=? AND id!=? "
+            "AND (valid_until IS NULL OR valid_until!=-1)",
             (fact.get("src"), fact.get("dst"), fact.get("kind"), fact.get("id")))
         # 重叠 = nf ≤ u 且 f ≤ nu（None = ±∞ 恒过）
         if (nf is None or e["valid_until"] is None or nf <= e["valid_until"])
@@ -145,7 +146,9 @@ def growth_guardrail(change: dict, conn: sqlite3.Connection) -> list[dict]:
 
 def track_ratchet(change: dict, conn: sqlite3.Connection) -> list[dict]:
     """TC-ON-10 后半 轨道棘轮：track 变更（定义修改，仅 retcon 路径产生——Task 8）
-    且该轨 frozen=1 且 definition 与现存不同 → major。未冻结/无记录 → 不报。"""
+    且该轨 frozen=1 且 definition 与现存不同 → major。未冻结/无记录 → 不报。
+    假设变更 fact 恒带 definition 键（T8 retcon 契约；缺失视为 None，与冻结轨
+    存量定义必不等 → 照报 major）。"""
     if change.get("kind") != "track":
         return []
     fact = change.get("fact", {})
