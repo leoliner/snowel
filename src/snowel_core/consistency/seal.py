@@ -49,17 +49,21 @@ def is_sealed(conn: sqlite3.Connection, node_id: str) -> bool:
 
 def sealed_volume_of(conn: sqlite3.Connection, node_id: str,
                      address: dict | None = None) -> str | None:
-    """冻结线判定（变更口径）：节点归属卷已封 → 卷 id，否则 None。
+    """冻结线判定（联合语义）：存盘归属卷或变更归属卷任一已封 → 卷 id，否则 None。
 
-    address 为变更事实携带的地址（投影器全组覆写 props，变更后地址即生效值）；
-    缺省/缺 volume 时回落到盘地址。confirm/extract 接线用本口——TC-CC-06 的
-    拦截面含"变更给旧无地址节点新挂 address.volume"（存盘地址口径查不到）。
+    address 为变更事实携带的地址（投影器全组覆写 props，变更后地址即生效值）。
+    联合 = 存盘地址归属卷 与 变更地址归属卷 都查——既拦"变更给旧无地址节点
+    新挂已封卷地址"（TC-CC-06），也拦改址迁出：已封卷内节点同笔把地址挪到
+    未封卷/不存在的卷号，存盘侧仍命中，已封卷内容不得经任何路径静默改写。
     """
+    vids = [volume_id_of(conn, node_id)]
     v = (address or {}).get("volume")
-    vid = _volume_node_id(conn, v) if v is not None else volume_id_of(conn, node_id)
-    if vid is None:
-        return None
-    return vid if _sealed(conn, vid) else None
+    if v is not None:
+        vids.append(_volume_node_id(conn, v))
+    for vid in vids:
+        if vid is not None and _sealed(conn, vid):
+            return vid
+    return None
 
 
 def seal_volume(conn: sqlite3.Connection, volume_id: str) -> int:

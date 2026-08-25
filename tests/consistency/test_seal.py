@@ -1,6 +1,7 @@
 # tests/consistency/test_seal.py
 import json
 import pytest
+from snowel_core.consistency.seal import SealedVolumeError
 from snowel_core.storage import db, events, projector
 
 
@@ -46,6 +47,30 @@ def test_unsealed_volume_not_blocked(api):  # TC-CC-05
          "props": {"address": {"volume": 2, "chapter": 0, "scene": 0,
                                "beat": 0}, "mechanism": {"level": 9}}}]})
     assert api.confirm(pid) > 0                           # 卷二未封，不拦
+
+
+def test_extract_auto_blocked_in_sealed_volume(api, tmp_path):  # 冻结线：auto 入典拦截
+    from snowel_core.writeback import mirror
+    _seed_two_volumes(api)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "积分兑换",
+         "props": {"address": {"volume": 1, "chapter": 0, "scene": 0,
+                               "beat": 0}}}]})
+    api.confirm(pid)  # m1 落盘归属卷一（数字后校会把带数字 props 的 low 事实抬成
+    # high，low 事实不能携带地址——冻结线经存盘归属卷命中）
+    api.seal("v1")
+    mirror.write_prose(api._conn, tmp_path, "c3", "林晚攒积分，第3章正文。")
+    resp = json.dumps({"facts": [
+        {"sensitivity": "low", "fact": {
+            "fact": "node", "id": "m1", "types": ["Mechanism"],
+            "name": "积分兑换",
+            "props": {"mechanism": {"规则": "一命换两命"}}}}],
+        "appeared": []}, ensure_ascii=False)
+    from tests.conftest import FakeBackend
+    with pytest.raises(SealedVolumeError, match="封卷"):
+        api.extract_and_writeback("c3", backend=FakeBackend([resp]))
+    assert api._conn.execute(
+        "SELECT 1 FROM events WHERE kind='auto_canonized'").fetchone() is None
 
 
 def test_auto_retraction_ignores_freeze(api, tmp_path):  # TC-WB-08 后半
