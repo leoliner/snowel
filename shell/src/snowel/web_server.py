@@ -169,8 +169,9 @@ def create_app(project_root: str | Path,
 
     @app.get("/api/reconcile")
     async def reconcile(request: Request) -> list[dict]:
-        """正文镜像对账状态（changed/missing 清单，供中栏编辑判断）。"""
-        return request.app.state.api.reconcile_prose()
+        """正文镜像对账状态（changed/missing 清单，dry-run：纯状态读不写库，
+        只读会话照常可查——F2）。"""
+        return request.app.state.api.reconcile_prose(dry_run=True)
 
     @app.get("/api/sealed")
     async def sealed(request: Request) -> list[dict]:

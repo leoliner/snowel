@@ -32,8 +32,14 @@ def write_prose(conn: sqlite3.Connection, project_root: Path,
     return seq
 
 
-def reconcile(conn: sqlite3.Connection, project_root: Path) -> list[dict]:
-    """D8 对账：文件是真相源，哈希不一致以文件为准重灌镜像。"""
+def reconcile(conn: sqlite3.Connection, project_root: Path,
+              dry_run: bool = False) -> list[dict]:
+    """D8 对账：文件是真相源，哈希不一致以文件为准重灌镜像。
+
+    dry_run=True（Web /api/reconcile 只读预演）：只收集 changed/missing
+    清单，两条写分支（镜像重灌 + 事件 + FTS 刷新）全部跳过——只读会话查
+    对账状态不得绕过租约写共享库（F2）；清单与 dry_run=False 逐项一致。
+    """
     changes = []
     for r in conn.execute("SELECT chapter_id, path, hash, prose FROM chapter_prose"):
         f = Path(r["path"])
@@ -43,20 +49,22 @@ def reconcile(conn: sqlite3.Connection, project_root: Path) -> list[dict]:
         content = f.read_text(encoding="utf-8")
         new_hash = _sha(content)
         if new_hash == r["hash"]:
-            if r["prose"] == "":  # rebuild 后镜像全文丢失：纯数据修复，哈希未变不写事件
+            if r["prose"] == "" and not dry_run:  # rebuild 后镜像全文丢失：
+                # 纯数据修复，哈希未变不写事件
                 with transaction(conn):
                     conn.execute(
                         "UPDATE chapter_prose SET prose=? WHERE chapter_id=?",
                         (content, r["chapter_id"]))
                     fts.refresh(conn)  # 水化后同事务重灌，修复后立即可检
             continue  # 已登记写入短路（TC-WB-02）：核心代写的文件不再触发
-        with transaction(conn):
-            events.append_event(conn, "prose_external_change", {
-                "chapter_id": r["chapter_id"], "path": str(f),
-                "old_hash": r["hash"], "new_hash": new_hash})
-            projector.apply(conn)
-            conn.execute("UPDATE chapter_prose SET prose=? WHERE chapter_id=?",
-                         (content, r["chapter_id"]))
-            fts.refresh(conn)  # apply 时 prose 列尚未水化，水化后同事务重灌
+        if not dry_run:
+            with transaction(conn):
+                events.append_event(conn, "prose_external_change", {
+                    "chapter_id": r["chapter_id"], "path": str(f),
+                    "old_hash": r["hash"], "new_hash": new_hash})
+                projector.apply(conn)
+                conn.execute("UPDATE chapter_prose SET prose=? WHERE chapter_id=?",
+                             (content, r["chapter_id"]))
+                fts.refresh(conn)  # apply 时 prose 列尚未水化，水化后同事务重灌
         changes.append({"chapter_id": r["chapter_id"], "status": "external_change"})
     return changes

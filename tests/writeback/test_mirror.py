@@ -79,3 +79,30 @@ def test_reconcile_repairs_empty_prose_without_events(api, tmp_path):
     n_after = api._conn.execute("SELECT count(*) c FROM events").fetchone()["c"]
     assert n_after == n_before           # 哈希未变，不追加事件
 
+
+def test_reconcile_dry_run_reads_without_writing(api, tmp_path):
+    # Ruling（T5 复评）：dry_run 只读预演——清单与真跑一致，但两条写分支
+    # （镜像重灌 + 事件 + FTS 刷新）全部跳过，只读会话查状态不得写共享库
+    mirror.write_prose(api._conn, tmp_path, "ch1", "旧正文")
+    (tmp_path / "chapters" / "ch1.md").write_text("新正文（外部编辑）", encoding="utf-8")
+    changes = mirror.reconcile(api._conn, tmp_path, dry_run=True)
+    assert changes == [{"chapter_id": "ch1", "status": "external_change"}]
+    n = api._conn.execute(
+        "SELECT count(*) c FROM events WHERE kind='prose_external_change'"
+    ).fetchone()["c"]
+    assert n == 0                        # dry-run 不 append 事件
+    prose = api._conn.execute(
+        "SELECT prose, hash FROM chapter_prose WHERE chapter_id='ch1'").fetchone()
+    assert prose["prose"] == "旧正文" and prose["hash"] == _sha("旧正文")  # 镜像未被动
+    # 真跑对照：清单相同 + 事件落库 + 镜像以文件为准重灌
+    assert mirror.reconcile(api._conn, tmp_path) == changes
+    assert api._conn.execute(
+        "SELECT count(*) c FROM events WHERE kind='prose_external_change'"
+    ).fetchone()["c"] == 1
+    # 修复分支（哈希未变、prose 置空）dry-run 同样不重灌镜像
+    api._conn.execute("UPDATE chapter_prose SET prose='' WHERE chapter_id='ch1'")
+    assert mirror.reconcile(api._conn, tmp_path, dry_run=True) == []
+    prose = api._conn.execute(
+        "SELECT prose FROM chapter_prose WHERE chapter_id='ch1'").fetchone()
+    assert prose["prose"] == ""          # dry-run 不写修复分支
+

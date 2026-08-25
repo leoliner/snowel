@@ -240,9 +240,14 @@ class SnowelAPI:
         return _port(self, chapter_id, backend, model=model)
 
     # 对账/手动抽取门面（§3.3，P4 三模式通用）
-    def reconcile_prose(self) -> list:
+    def reconcile_prose(self, dry_run: bool = False) -> list:
+        """正文镜像对账（D8）：文件是真相源，哈希不一致以文件为准重灌镜像。
+
+        dry_run=True 只收集 changed/missing 清单不写库（Web 只读对账状态
+        用，F2：readonly 会话不得写库）；MCP 写动作走默认 dry_run=False。
+        """
         from .writeback import mirror
-        return mirror.reconcile(self._conn, self._root)
+        return mirror.reconcile(self._conn, self._root, dry_run=dry_run)
 
     def trigger_extract(self, chapter_id: str, backend=None, model=None):
         backend = backend or _default_llm(self._conn)

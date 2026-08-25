@@ -4,6 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from snowel_core.api import SnowelAPI
+from snowel_core.writeback import mirror
 from snowel.web_server import create_app
 
 pytestmark = pytest.mark.anyio
@@ -137,6 +138,39 @@ async def test_readonly_session_reads_freely(project):
         assert (await c.get("/api/audit")).status_code == 200
     api.release_lease("mcp:test-holder")
     api.close()
+
+
+async def test_readonly_reconcile_is_pure_state_read(project):
+    # Ruling（T5 复评）：只读会话 GET /api/reconcile 是纯状态读（dry-run），
+    # 不得绕过租约写共享库（F2）——写穿透关闭锚
+    seed = SnowelAPI.open(project)
+    mirror.write_prose(seed._conn, project, "ch1", "旧正文")
+    (project / "chapters" / "ch1.md").write_text("新正文（外部编辑）",
+                                                 encoding="utf-8")
+    seed.close()
+    api = SnowelAPI.open(project)          # 抢占租约：模拟他端持锁
+    api.acquire_lease("mcp:test-holder")
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        sess = (await c.get("/api/session")).json()
+        assert sess["readonly"] is True
+        r = await c.get("/api/reconcile")
+        assert r.status_code == 200
+        assert r.json() == [{"chapter_id": "ch1",
+                             "status": "external_change"}]
+    api.release_lease("mcp:test-holder")
+    api.close()
+    # 写穿透关闭锚：库内无 prose_external_change 事件、镜像未被重灌
+    check = SnowelAPI.open(project)
+    n = check._conn.execute(
+        "SELECT count(*) c FROM events WHERE kind='prose_external_change'"
+    ).fetchone()["c"]
+    assert n == 0
+    prose = check._conn.execute(
+        "SELECT prose FROM chapter_prose WHERE chapter_id='ch1'").fetchone()
+    assert prose["prose"] == "旧正文"
+    check.close()
 
 
 def test_web_rejects_non_project(tmp_path):
