@@ -4,6 +4,8 @@
 // 数据获取统一走 useApi（§5.1 骨架屏 / §5.3 错误红条）。
 // refreshKey（T12 遗留清偿）：聊天入队提案/确认否决后递增，
 // 驱动 ProposalList/FlowTree 以新 key 重拉（T10 遗留③）。
+// workspaceTab（T13）：工作区顶部 提案/可视化 互斥 tab，状态提升至此，
+// ChatSidebar 的 onGoProposals 切回"提案"tab（当前 refresh-only → 接线）。
 import { useState } from 'react'
 import { useApi } from './api'
 import type { Session } from './types'
@@ -14,6 +16,8 @@ import ProposalPanel from './components/ProposalPanel'
 import GenerateForm from './components/GenerateForm'
 import ProseEditor from './components/ProseEditor'
 import ChatSidebar from './components/ChatSidebar'
+import VizPanel from './components/VizPanel'
+import type { WorkspaceTab } from './components/VizPanel'
 
 function Skeleton({ className = 'h-4' }: { className?: string }) {
   return <div data-testid="skeleton" className={`skeleton ${className}`} />
@@ -27,6 +31,8 @@ export default function App() {
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null)
   // T12 遗留清偿：聊天/面板变更后递增，触发列表与流程树重拉
   const [refreshKey, setRefreshKey] = useState(0)
+  // T13：工作区顶部 tab（提案/可视化 互斥），状态提升以便 onGoProposals 切 tab
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('proposals')
 
   const data = session.data
   const readonly = data?.readonly ?? false
@@ -132,19 +138,21 @@ export default function App() {
                 <Skeleton className="h-16" />
               </div>
             ) : (
-              <div className="flex flex-col gap-3">
-                <GenerateForm readonly={readonly} onGenerated={setSelectedPid} />
-                <ProposalList
-                  selectedId={selectedPid}
-                  refreshKey={refreshKey}
-                  onSelect={(p) => setSelectedPid(p.id)}
-                />
-                <ProposalPanel
-                  proposalId={selectedPid}
-                  readonly={readonly}
-                  onMutated={() => setRefreshKey((k) => k + 1)}
-                />
-              </div>
+              <VizPanel activeTab={workspaceTab} onTabChange={setWorkspaceTab}>
+                <div className="flex flex-col gap-3">
+                  <GenerateForm readonly={readonly} onGenerated={setSelectedPid} />
+                  <ProposalList
+                    selectedId={selectedPid}
+                    refreshKey={refreshKey}
+                    onSelect={(p) => setSelectedPid(p.id)}
+                  />
+                  <ProposalPanel
+                    proposalId={selectedPid}
+                    readonly={readonly}
+                    onMutated={() => setRefreshKey((k) => k + 1)}
+                  />
+                </div>
+              </VizPanel>
             )}
           </div>
 
@@ -167,7 +175,11 @@ export default function App() {
               {!chatCollapsed && (
                 <ChatSidebar
                   readonly={readonly}
-                  onGoProposals={() => setRefreshKey((k) => k + 1)}
+                  onGoProposals={() => {
+                    // T13 接线：切回"提案"tab + 刷新列表/流程树（T12 遗留）
+                    setWorkspaceTab('proposals')
+                    setRefreshKey((k) => k + 1)
+                  }}
                 />
               )}
             </div>

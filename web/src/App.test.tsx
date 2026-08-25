@@ -92,13 +92,36 @@ describe('useApi 加载/错误态（ui-design-01 §5.1/§5.3）', () => {
   })
 })
 
-describe('T12 遗留：聊天入队提案 → 去确认刷新流程树/提案列表（refreshKey）', () => {
-  it('聊天 done 入队 → 点"去确认"链接 → ProposalList/FlowTree useApi 以新 key 重拉', async () => {
+describe('T13 工作区 tab（提案/可视化互斥，ui-design-01 §3）', () => {
+  it('点"可视化"渲染统计图区段（挂载四图），点"提案"回到提案面板', () => {
+    mockSession(writableSession)
+    render(<App />)
+    expect(screen.getByTestId('proposal-list')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '可视化' }))
+    expect(screen.getByTestId('viz-sections')).toBeInTheDocument()
+    // 互斥：提案面板内容卸载（统计 mock 数据为 Session 形状 → 四空态）
+    expect(screen.queryByTestId('proposal-list')).not.toBeInTheDocument()
+    expect(screen.getByText('暂无 POV 数据')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '可视化' })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.click(screen.getByRole('tab', { name: '提案' }))
+    expect(screen.getByTestId('proposal-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('viz-sections')).not.toBeInTheDocument()
+  })
+})
+
+describe('T12 遗留：聊天入队提案 → 去确认（T13：切回"提案"tab + refreshKey）', () => {
+  it('可视化 tab 下点"去确认"链接 → 切回"提案"tab + ProposalList/FlowTree 以新 key 重拉', async () => {
     mockSession(writableSession)
     vi.mocked(streamSSE).mockImplementation(async (_url, _body, onEvent) => {
       onEvent({ type: 'done', proposal_ids: ['p1'] })
     })
     render(<App />)
+    // 先切到"可视化"tab，验证 onGoProposals 会把工作区切回提案面板
+    fireEvent.click(screen.getByRole('tab', { name: '可视化' }))
+    expect(screen.getByTestId('viz-sections')).toBeInTheDocument()
+
     const flowCalls = () => mockUseApi.mock.calls.filter((c) => c[0] === '/api/flow').length
     const listCalls = () => mockUseApi.mock.calls.filter((c) => c[0] === '/api/proposals').length
     const beforeFlow = flowCalls()
@@ -108,6 +131,10 @@ describe('T12 遗留：聊天入队提案 → 去确认刷新流程树/提案列
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     fireEvent.click(await screen.findByRole('button', { name: /已入队 1 个提案/ }))
 
+    // onGoProposals（T13 接线）：切回"提案"tab
+    expect(screen.getByRole('tab', { name: '提案' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('proposal-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('viz-sections')).not.toBeInTheDocument()
     // refreshKey 递增 → 消费方以新 key 重拉（/api/flow 另有 ProseEditor 消费，仅断增量）
     await waitFor(() => {
       expect(flowCalls()).toBeGreaterThan(beforeFlow)

@@ -146,5 +146,59 @@ export interface ErrorEvent {
 
 export type ChatEvent = ToolCallEvent | ToolResultEvent | ReplyEvent | DoneEvent | ErrorEvent
 
-// GET /api/stats/{pov|foreshadow|relations|pacing}：细粒度形状由 T13 Viz 组件按需细化
-export type StatsResponse = Record<string, unknown>
+// ---- GET /api/stats/*（T7 W4 统计四件，与后端 queries.py 形状一比一）----
+
+// GET /api/stats/pov：分卷 POV 频次（volume_id/name 为 null = 无 address 的未分卷聚合）
+export interface PovVolumeStat {
+  volume_id: string | null
+  volume_name: string | null
+  counts: Record<string, number>
+}
+export interface PovStatsResponse {
+  by_volume: PovVolumeStat[]
+}
+
+// GET /api/stats/foreshadow：伏笔清单（planted_at/payoff_beat 为拍节点 id；
+// status 口径：payoff 未设=planted / 目标活跃=paid / 目标缺失或撤回=stale）
+export type ForeshadowStatus = 'planted' | 'paid' | 'stale'
+export interface ForeshadowItem {
+  id: string
+  name: string
+  planted_at: string | null
+  payoff_beat: string | null
+  status: ForeshadowStatus
+}
+export interface ForeshadowStatsResponse {
+  items: ForeshadowItem[]
+}
+
+// GET /api/stats/relations：活跃 Character 节点 + 两端均活跃的边（行序列化）
+export interface RelationNode {
+  id: string
+  types: string
+  name: string
+  props: Record<string, unknown>
+  active: number
+}
+export interface RelationEdge {
+  id: string
+  src: string
+  dst: string
+  kind: string
+  props: Record<string, unknown>
+}
+export interface RelationsStatsResponse {
+  nodes: RelationNode[]
+  edges: RelationEdge[]
+}
+
+// GET /api/stats/pacing：每章拍数（地址聚合）与段落数（镜像段落行计数）
+export interface PacingChapter {
+  chapter_id: string
+  name: string
+  beats: number
+  paragraphs: number
+}
+export interface PacingStatsResponse {
+  chapters: PacingChapter[]
+}
