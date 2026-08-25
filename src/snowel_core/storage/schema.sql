@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS checkpoint(
   id  INTEGER PRIMARY KEY CHECK (id = 1),
   seq INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sealed_volumes(
+  volume_id TEXT PRIMARY KEY,
+  sealed_seq INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS lease(
   id           INTEGER PRIMARY KEY CHECK (id = 1),
   holder       TEXT NOT NULL,

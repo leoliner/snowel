@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 
+from ..consistency import wiring
 from ..llm.backend import GenerationBackend
 from ..ontology import groups
 from ..storage import config, events, projector
@@ -70,14 +71,31 @@ def extract_and_writeback(api, chapter_id: str, backend: GenerationBackend,
         proposal_id = api.proposals.create("extract_facts", {
             "chapter_id": chapter_id, "facts": high, "appeared": appeared})
     auto_seq = None
+    cascade = None
     if low:
+        # 冻结线（C7）：低敏感自动入典不得穿透冻结线——已封卷内设定改动
+        # 事务前拦截（提示走显式 retcon）；retraction（C11）豁免不受此限
+        from ..consistency import seal
+        for f in low:
+            if f.get("fact") == "node":
+                vid = seal.sealed_volume_of(conn, f.get("id"),
+                                            f.get("props", {}).get("address"))
+                if vid is not None:
+                    raise seal.SealedVolumeError(
+                        f"卷 {vid} 已封卷，设定改动须走显式 retcon")
+        # 级联接线·前半（E5 四写入点之二，轻量档）：入典事务前只读分析——
+        # 基线=变更前生效值（projector 在事务内覆写 props，post-commit
+        # 分析对同键改值恒漏检，与 confirm 同缺陷类）
+        analysis = wiring.analyze(conn, low, "light")
         with transaction(conn):
             auto_seq = events.append_event(conn, "auto_canonized", {
                 "facts": low, "source": {"chapter_id": chapter_id,
                                          "hash": row["hash"]},
                 "appeared": appeared})
             projector.apply(conn)
+        # 级联接线·后半：major 矛盾 diff 提案在事务后独立产出（P1/P2）
+        cascade = wiring.finalize(conn, analysis, auto_seq, "light")
     return {"chapter_id": chapter_id, "proposal_id": proposal_id,
             "auto_event_seq": auto_seq, "warnings": warnings,
-            "appeared": appeared,
+            "appeared": appeared, "cascade": cascade,
             "deviation": deviation.report(conn, chapter_id)}  # C12：随抽取产出

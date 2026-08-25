@@ -2,7 +2,7 @@
 import json
 
 from ..retrieval.context import unrecovered
-from ..storage import queries
+from ..storage import deathbeat, queries
 from .generate import ai_generate
 
 
@@ -51,15 +51,9 @@ def volume_start_state(conn, volume_id: str) -> dict:
                                          n.get("core_level"))})
         if "Foreshadow" in types and unrecovered(conn, n, end):
             foreshadows.append(n["name"])  # 已回收（payoff ≤ end）剔除
-    dead = []  # 死亡名单：state_at 过滤掉的人，从全量图按 death_beat 单独推导
+    dead = []  # 死亡名单：deathbeat 统一口径（L13：死亡拍停用 → 保守存活）
     for r in conn.execute("SELECT name, props FROM nodes WHERE active=1"):
-        props = json.loads(r["props"])
-        death = props.get("core", {}).get("death_beat")
-        if death is None:
-            continue
-        d = queries.get_node(conn, death)
-        if d is not None and d["story_order"] is not None \
-                and d["story_order"] <= end:
+        if deathbeat.is_dead(conn, r, end):
             dead.append(r["name"])
     return {"story_order": end, "alive": alive, "dead": dead,
             "mechanisms": mechs, "open_foreshadows": foreshadows}

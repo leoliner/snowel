@@ -22,18 +22,6 @@ ProjectOpt = Annotated[
 
 _project: Optional[Path] = None
 
-PLANNED_IN = {
-    "seal": "级联检查计划（volume_sealed 事件）",
-}
-
-
-def _not_wired(capability: str) -> None:
-    typer.secho(
-        f"未接线：{capability} 依赖尚未实现的底层能力"
-        f"（{PLANNED_IN[capability]}）。",
-        err=True, fg=typer.colors.YELLOW)
-    raise typer.Exit(code=2)
-
 
 def _resolve(explicit: Optional[Path]) -> Path:
     """命令级 --project 优先，未给时回落回调级（--project X <cmd>）。"""
@@ -137,9 +125,22 @@ def export(project: ProjectOpt = None,
 
 
 @app.command()
-def seal(project: ProjectOpt = None) -> None:
-    """封卷（冻结线）——未接线。"""
-    _not_wired("seal")
+def seal(project: ProjectOpt = None,
+         volume_id: Annotated[str, typer.Argument(
+             help="卷 id（Volume 节点）")] = ...) -> None:
+    """封卷（C7 冻结线）：已封卷内设定改动须走显式 retcon。"""
+    ctx = _open_or_exit(project, want_write=True)
+    try:
+        node = ctx.api.get_node(volume_id)
+        try:
+            ctx.api.seal(volume_id)
+        except ValueError as e:
+            typer.secho(str(e), err=True, fg=typer.colors.RED)
+            raise typer.Exit(code=1) from e
+        name = node["name"] if node else volume_id
+        typer.echo(f"已封卷：{volume_id}（{name}）")
+    finally:
+        ctx.close()
 
 
 def main() -> None:

@@ -20,6 +20,7 @@ class SnowelAPI:
         self._conn = conn
         self._root = root          # 项目根（写文件 IO 用，C1）
         self.proposals = ProposalQueue(conn)
+        self._last_cascade = None  # 最近一次 confirm 的级联结果（E5 接线缓存）
 
     @classmethod
     def init_project(cls, path) -> "SnowelAPI":
@@ -139,26 +140,84 @@ class SnowelAPI:
 
     # 确认即写文件编排（C1）
     def confirm(self, proposal_id: str, exclude: list[str] | None = None) -> int:
-        """统一确认入口：正文类提案确认即代写文件并登记哈希（C1）。"""
+        """统一确认入口：正文类提案确认即代写文件并登记哈希（C1）。
+
+        级联接线（E5 四写入点之一，全量档）：分析在主事务前只读跑——比对
+        基线=变更前生效值（projector 在确认事务内覆写物化值，事后分析回看
+        不到旧值）；diff 提案在主事务后独立产出（P1/P2）。
+        revision/retcon 不走此处（revision 无事实语义变更；retcon 有专属流程）。
+        """
         p = self.proposals.get(proposal_id)
+        if p["kind"] == "retcon":
+            # 拦截：retcon 有专属确认流程（confirm_retcon，Task 8）——通用确认会
+            # 静默丢弃 renames/track_updates、不跑 C5 stale，半应用且无恢复路径
+            raise ValueError(
+                f"提案 {proposal_id} 是 retcon 提案，须走 confirm_retcon 确认")
+        payload = json.loads(p["payload"])
+        facts = payload.get("facts", [])
+        if exclude:  # TC-PR-09：剔除的事实不入事件 → 也不构成级联分析对象
+            facts = [f for f in facts if f.get("id") not in set(exclude)]
+        pre_violations = None
+        if p["kind"] not in ("revision",) and facts:
+            # 冻结线（C7）：变更落已封卷内设定 → 事务前拦截，提示走显式 retcon；
+            # revision 无事实语义（结构变更走二段物化）；retcon 已在函数入口整体拒绝
+            from .consistency import seal
+            for f in facts:
+                if f.get("fact") == "node":
+                    vid = seal.sealed_volume_of(
+                        self._conn, f.get("id"),
+                        f.get("props", {}).get("address"))
+                    if vid is not None:
+                        raise seal.SealedVolumeError(
+                            f"卷 {vid} 已封卷，设定改动须走显式 retcon")
+            from .consistency import wiring
+            pre_violations = wiring.analyze(self._conn, facts, "full")
         seq = self.proposals.confirm(proposal_id, exclude=exclude)
         if p["kind"] == "prose":
-            payload = json.loads(p["payload"])
             from .writeback import mirror
             mirror.write_prose(self._conn, self._root,
                                payload["chapter_id"], payload["content"])
         if p["kind"] == "revision":  # §5.2：结构变更二段物化（E2 维持 int 返回）
-            payload = json.loads(p["payload"])
             with db.transaction(self._conn):
                 events.append_event(self._conn, "revision_applied", {
                     "structure_changes": payload.get("structure_changes", [])})
                 projector.apply(self._conn)
-            # C5（revision 面）：pending 全标 stale，受影响分析归级联检查计划
-            for row in self.proposals.list(status="pending"):
-                self.proposals.mark_stale(
-                    row["id"],
+            # C5（revision 面，P4 精确）：变更触及节点 id ∩ pending 提案 payload
+            # 含该 id → 只标受影响提案（替代 T17 全 pending 保守标记，L14 单事务批量）
+            from .consistency import retcon
+            node_ids = {ch["node_id"] for ch in payload.get("structure_changes", [])
+                        if ch.get("node_id")}
+            pids = retcon.affected_pending(self._conn, node_ids)
+            if pids:
+                retcon.mark_stale_batch(
+                    self._conn, pids,
                     f"上游 revision：{payload.get('node_id', '')} 结构变更")
+        self._last_cascade = None
+        if pre_violations is not None:  # 事务后收尾：major 矛盾产 diff 提案
+            self._last_cascade = wiring.finalize(
+                self._conn, pre_violations, seq, "full")
         return seq
+
+    def last_cascade(self) -> dict | None:
+        """最近一次 confirm 的级联结果（该次未跑级联则为 None）。
+
+        E2 契约下 confirm 仍返回 int；级联结果经此暴露（MCP 壳增补
+        "cascade" 键的数据面，壳任务接线）。
+        """
+        return self._last_cascade
+
+    def proposal_kind(self, proposal_id: str) -> str:
+        """只读门面：查提案 kind（MCP 壳 confirm 分派用：retcon → confirm_retcon）。"""
+        p = self.proposals.get(proposal_id)
+        if p is None:
+            raise ValueError(f"提案 {proposal_id} 不存在")
+        return p["kind"]
+
+    # 级联只读预演门面（E5）：Web/advanced 预演用，跑档返回 violations
+    # + diff 预览，不入队任何提案
+    def cascade_check(self, facts: list[dict], tier: str = "full") -> dict:
+        from .consistency import wiring
+        return wiring.preview(self._conn, facts, tier)
 
     # 崩溃窗口恢复（L6）：按已确认 prose 提案重放"确认即代写"
     def reregister_prose(self, proposal_id: str) -> str:
@@ -209,3 +268,51 @@ class SnowelAPI:
                     reason: str | None = None) -> dict:
         from .writeback import review
         return review.reject_auto(self._conn, entries, reason=reason)
+
+    # 封卷（C7）与冻结线数据面（TC-CC-05/06/08）
+    def seal(self, volume_id: str) -> int:
+        """封卷：校验 Volume 节点存在且未封 → 追加 volume_sealed 事件并物化。
+
+        已封卷拒绝（ValueError）；封卷后设定改动被冻结线拦截，须走显式 retcon。
+        """
+        from .consistency import seal
+        return seal.seal_volume(self._conn, volume_id)
+
+    def sealed_volumes(self) -> list:
+        """已封卷列表（TC-CC-05 警告面数据源）：壳/Web 与 flow_state 卷树
+        对减即未封卷集合——未封卷内写作仅警告不阻断（冻结线只拦已封卷）。"""
+        return [dict(r) for r in self._conn.execute(
+            "SELECT volume_id, sealed_seq FROM sealed_volumes "
+            "ORDER BY sealed_seq")]
+
+    # 显式 retcon（C7 冻结线合法通道，TC-CC-07）：propose 全量级联 → 专属确认
+    def propose_retcon(self, facts=None, renames=None, track_updates=None,
+                       reason: str = "") -> dict:
+        """创建 kind="retcon" 提案（payload 携带影响清单），创建时跑全量级联（P5）。
+
+        retcon 的级联在 propose 时跑（P5），确认时不再重跑——此处把影响清单
+        同步进 _last_cascade，MCP 壳 confirm 响应的 "cascade" 键才能反映
+        本次 retcon 流程（T10 接线面，与 revision 确认置 None 同理）。
+        """
+        from .consistency import retcon
+        out = retcon.propose_retcon(self, facts, renames, track_updates, reason)
+        self._last_cascade = {"tier": "full",
+                              "violations": out["impact"]["violations"],
+                              "cascade_proposal_id": None}
+        return out
+
+    def confirm_retcon(self, proposal_id: str) -> int:
+        """retcon 专属确认（冻结线豁免）：单事务双事件物化 + 事务后 C5 精确 stale。"""
+        from .consistency import retcon
+        return retcon.confirm_retcon(self, proposal_id)
+
+    # 伏笔注册（§4.8，TC-ON-14 手动 author 通道）：校验 → 建 kind="foreshadow"
+    # 提案（铁律 3），确认走 api.confirm（级联/冻结线随 confirm 接线自然生效）
+    def register_foreshadow(self, name: str, planted_at: str,
+                            origin: str = "author", payoff_beat: str | None = None,
+                            note: str = "") -> str:
+        """注册伏笔：校验 planted_at（已有 MicroBeat/Scene/Chapter 节点 id）
+        与 origin ∈ {"author", "ai"} 后建提案，返回 pid。"""
+        from .consistency import foreshadow
+        return foreshadow.register(self, name, planted_at, origin,
+                                   payoff_beat, note)

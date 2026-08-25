@@ -241,12 +241,76 @@ async def test_advanced_catalog_and_rebuild(project):  # TC-SH-02
         assert set(ops) >= {"rebuild", "setting_gap", "foreshadow_register",
                             "seal", "retcon", "extension_packs", "audit"}
         assert ops["rebuild"]["wired"] is True
+        for k in ("seal", "retcon", "foreshadow_register"):
+            assert ops[k]["wired"] is True
+            assert ops[k]["via"] == "snowel_writeback"
         assert all(not v["wired"] for k, v in ops.items()
-                   if k not in ("rebuild", "audit"))
+                   if k not in ("rebuild", "audit",
+                                "seal", "retcon", "foreshadow_register"))
         done = await _call(client, "snowel_advanced", {"op": "rebuild"})
         assert done == {"rebuilt": True}
-        miss = await _call(client, "snowel_advanced", {"op": "seal"})
-        _assert_not_wired(miss, "seal")
+        guide = await _call(client, "snowel_advanced", {"op": "seal"})
+        assert guide == {"wired": True, "via": "snowel_writeback",
+                         "hint": "经 snowel_writeback 对应 action 调用"}
+        miss = await _call(client, "snowel_advanced", {"op": "setting_gap"})
+        _assert_not_wired(miss, "setting_gap")
+
+
+async def test_writeback_seal_and_retcon_wired(project, tmp_path):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "v1", "types": ["Volume"], "name": "卷一",
+         "props": {"address": {"volume": 1, "chapter": 0, "scene": 0,
+                               "beat": 0}}}]})
+    api.confirm(pid)
+    api.close()
+    async with _connected(project) as (ctx, client):
+        w = await _call(client, "snowel_writeback",
+                        {"action": "seal", "params": {"volume_id": "v1"}})
+        assert w["sealed"] == "v1"
+        r = await _call(client, "snowel_writeback", {
+            "action": "retcon",
+            "params": {"facts": [{"fact": "node", "id": "v1",
+                                  "types": ["Volume"], "name": "卷一",
+                                  "props": {}}], "reason": "测试"}})
+        assert "proposal_id" in r and "impact" in r
+        cat = await _call(client, "snowel_advanced", {})
+        assert cat["operations"]["seal"]["wired"] is True
+
+
+async def test_writeback_foreshadow_registers_proposal(project):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "mb1", "types": ["MicroBeat"],
+         "name": "开场拍", "props": {"address": {"volume": 1, "chapter": 1,
+                                                 "scene": 1, "beat": 1}}}]})
+    api.confirm(pid)
+    api.close()
+    async with _connected(project) as (ctx, client):
+        f = await _call(client, "snowel_writeback", {
+            "action": "foreshadow",
+            "params": {"name": "怀表", "planted_at": "mb1", "note": "第3章回收"}})
+        assert "proposal_id" in f
+        rows = await _call(client, "snowel_proposal", {"action": "list"})
+        assert any(r["kind"] == "foreshadow" for r in rows["result"])
+
+
+async def test_confirm_response_carries_cascade(project):
+    api = SnowelAPI.open(project)
+    p1 = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "M",
+         "props": {"mechanism": {"level": 3}}}]})
+    api.confirm(p1)
+    p2 = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "M",
+         "props": {"mechanism": {"level": 5}}}]})
+    api.close()
+    async with _connected(project) as (ctx, client):
+        done = await _call(client, "snowel_proposal",
+                           {"action": "confirm", "proposal_id": p2})
+        assert done["cascade"]["tier"] == "full"
+        assert any(v["rule"] == "contradiction"
+                   for v in done["cascade"]["violations"])
 
 
 async def test_write_rejected_when_readonly(project):  # TC-SH-04 壳层

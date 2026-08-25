@@ -57,6 +57,9 @@ def _retcon_applied(tx, payload, seq):
         tx.execute("UPDATE nodes SET name=? WHERE id=?", (r["new_name"], r["node_id"]))
         tx.execute("INSERT OR IGNORE INTO alias(node_id, alias, source) VALUES(?,?,?)",
                    (r["node_id"], r["old_name"], "retcon"))
+    for t in payload.get("track_updates", []):  # P3：retcon 即合法改轨路径
+        tx.execute("UPDATE tracks SET definition=? WHERE id=?",
+                   (json.dumps(t["definition"], ensure_ascii=False), t["track_id"]))
 
 def _completeness_override(tx, payload, seq):
     tx.execute("UPDATE nodes SET completeness=? WHERE id=?",
@@ -71,12 +74,17 @@ def _track_added(tx, payload, seq):
 def _track_frozen(tx, payload, seq):
     tx.execute("UPDATE tracks SET frozen=1 WHERE id=?", (payload["track_id"],))
 
+def _volume_sealed(tx, payload, seq):
+    tx.execute("INSERT INTO sealed_volumes(volume_id, sealed_seq) VALUES(?,?)",
+               (payload["volume_id"], seq))
+
 HANDLERS.update({
     "retraction": _retraction,
     "retcon_applied": _retcon_applied,
     "completeness_override": _completeness_override,
     "track_added": _track_added,
     "track_frozen": _track_frozen,
+    "volume_sealed": _volume_sealed,
 })
 
 def _addr_key(props: dict) -> tuple:
@@ -140,7 +148,8 @@ def rebuild(conn: sqlite3.Connection) -> None:
     """全量重建：清空物化表后重放全部事件（D1：检查点永不过期、可随时重建）。"""
     from .db import transaction
     with transaction(conn):
-        for t in ("alias", "edges", "nodes", "tracks", "chapter_prose", "checkpoint"):
+        for t in ("alias", "edges", "nodes", "tracks", "chapter_prose",
+                  "sealed_volumes", "checkpoint"):
             conn.execute(f"DELETE FROM {t}")
         apply(conn)
 

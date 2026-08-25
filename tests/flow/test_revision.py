@@ -38,13 +38,16 @@ def test_revision_unified_flow(api):  # TC-FL-06：章改卷走统一提案→�
     assert api.get_node("c5")["story_order"] < api.get_node("c9")["story_order"]
 
 
-def test_revision_marks_pending_stale(api):  # C5（revision 面）
+def test_revision_marks_pending_stale(api):  # C5（revision 面，P4 精确）
     _seed_two_volumes(api)
-    other = api.proposals.create("scene", {"draft": "x"})   # 无关 pending
+    other = api.proposals.create("scene", {"draft": "x"})   # 不引用 c5 → 不标
+    touched = api.proposals.create("scene", {
+        "draft": "x", "mention": {"c5": "章节"}})           # 引用 c5 → 标 stale
     pid = api.propose_revision("c5", {"volume": 1, "chapter": 9,
                                       "scene": 0, "beat": 0})
     api.confirm(pid)
-    row = api.proposals.get(other)
+    assert api.proposals.get(other)["status"] == "pending"  # 精确 stale：无关不标
+    row = api.proposals.get(touched)
     assert row["status"] == "stale"
     assert "revision" in row["stale_hint"]
 

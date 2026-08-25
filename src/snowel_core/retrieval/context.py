@@ -2,7 +2,7 @@
 import json
 import sqlite3
 
-from ..storage import queries
+from ..storage import deathbeat, queries
 from . import audit, hybrid
 
 
@@ -12,13 +12,8 @@ def _alive(conn, node_ids, story_order):
         row = queries.get_node(conn, nid)
         if row is None or not row["active"]:
             continue
-        props = json.loads(row["props"])
-        death = props.get("core", {}).get("death_beat")
-        if death is not None:
-            d = queries.get_node(conn, death)
-            if d is not None and d["story_order"] is not None \
-                    and d["story_order"] <= story_order:
-                continue  # 已死亡@拍 ≤ 目标拍 → 不在场
+        if deathbeat.is_dead(conn, row, story_order):
+            continue  # 已死亡@拍 ≤ 目标拍 → 不在场（L13：死亡拍停用则存活）
         out.append(row)
     return out
 

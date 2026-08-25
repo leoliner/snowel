@@ -98,6 +98,34 @@ FACTS = [{"fact": "node", "id": "n1", "types": ["Character"],
           "name": "林晚", "props": {}}]
 
 
+def test_descendants_kinds_and_validity(core_conn):  # L4
+    _confirm(core_conn, [
+        {"fact": "node", "id": "n1", "types": ["Concept"], "name": "a", "props": {}},
+        {"fact": "node", "id": "n2", "types": ["Mechanism"], "name": "b", "props": {}},
+        {"fact": "node", "id": "n3", "types": ["Concept"], "name": "c", "props": {}},
+        {"fact": "edge", "id": "e1", "src": "n1", "dst": "n2", "kind": "REQUIRES",
+         "props": {"valid_from_beat": "mb1", "valid_until_beat": "mb2"}},
+        {"fact": "edge", "id": "e2", "src": "n1", "dst": "n3", "kind": "IS_A",
+         "props": {}},
+        {"fact": "node", "id": "mb1", "types": ["MicroBeat"], "name": "x",
+         "props": {"address": {"volume": 1, "chapter": 1, "scene": 1, "beat": 1}}},
+        {"fact": "node", "id": "mb2", "types": ["MicroBeat"], "name": "y",
+         "props": {"address": {"volume": 1, "chapter": 2, "scene": 1, "beat": 1}}},
+    ])
+    # kinds 过滤
+    got = {r["id"] for r in queries.descendants(core_conn, "n1", kinds=["REQUIRES"])}
+    assert got == {"n2"}
+    # 时效过滤：e1 有效期 [0,1]，at=5 过期；e2 恒有效
+    got2 = {r["id"] for r in queries.descendants(
+        core_conn, "n1", at_story_order=5)}
+    assert got2 == {"n3"}
+    got3 = {r["id"] for r in queries.descendants(
+        core_conn, "n1", at_story_order=1)}
+    assert got3 == {"n2", "n3"}
+    # 默认行为不变
+    assert len(queries.descendants(core_conn, "n1")) == 2
+
+
 def test_graph_stats_counts_and_types(tmp_path):
     # 本文件无 conn fixture，沿用 _mk(tmp_path) 建库（断言与 brief 一致）
     conn = _mk(tmp_path)
