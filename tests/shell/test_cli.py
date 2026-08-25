@@ -96,11 +96,21 @@ def test_export_txt_format(tmp_path):
     assert (out / "ch1.txt").read_text(encoding="utf-8") == "正文"
 
 
-def test_seal_still_not_wired(tmp_path):
+def test_seal_command(tmp_path):
     SnowelAPI.init_project(tmp_path)
-    res = runner.invoke(app, ["seal", "--project", str(tmp_path)])
-    assert res.exit_code == 2
-    assert "未接线" in res.output
+    api = SnowelAPI.open(tmp_path)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "v1", "types": ["Volume"], "name": "卷一",
+         "props": {"address": {"volume": 1, "chapter": 0, "scene": 0,
+                               "beat": 0}}}]})
+    api.confirm(pid)
+    api.close()
+    res = runner.invoke(app, ["seal", "--project", str(tmp_path), "v1"])
+    assert res.exit_code == 0 and "卷一" in res.output
+    res2 = runner.invoke(app, ["seal", "--project", str(tmp_path), "v1"])
+    assert res2.exit_code == 1 and "已封" in res2.output
+    res3 = runner.invoke(app, ["seal", "--project", str(tmp_path)])
+    assert res3.exit_code == 2                       # volume_id 参数必填
 
 
 def test_project_option_overrides_cwd(tmp_path, monkeypatch):

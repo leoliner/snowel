@@ -206,6 +206,13 @@ class SnowelAPI:
         """
         return self._last_cascade
 
+    def proposal_kind(self, proposal_id: str) -> str:
+        """只读门面：查提案 kind（MCP 壳 confirm 分派用：retcon → confirm_retcon）。"""
+        p = self.proposals.get(proposal_id)
+        if p is None:
+            raise ValueError(f"提案 {proposal_id} 不存在")
+        return p["kind"]
+
     # 级联只读预演门面（E5）：Web/advanced 预演用，跑档返回 violations
     # + diff 预览，不入队任何提案
     def cascade_check(self, facts: list[dict], tier: str = "full") -> dict:
@@ -281,9 +288,18 @@ class SnowelAPI:
     # 显式 retcon（C7 冻结线合法通道，TC-CC-07）：propose 全量级联 → 专属确认
     def propose_retcon(self, facts=None, renames=None, track_updates=None,
                        reason: str = "") -> dict:
-        """创建 kind="retcon" 提案（payload 携带影响清单），创建时跑全量级联（P5）。"""
+        """创建 kind="retcon" 提案（payload 携带影响清单），创建时跑全量级联（P5）。
+
+        retcon 的级联在 propose 时跑（P5），确认时不再重跑——此处把影响清单
+        同步进 _last_cascade，MCP 壳 confirm 响应的 "cascade" 键才能反映
+        本次 retcon 流程（T10 接线面，与 revision 确认置 None 同理）。
+        """
         from .consistency import retcon
-        return retcon.propose_retcon(self, facts, renames, track_updates, reason)
+        out = retcon.propose_retcon(self, facts, renames, track_updates, reason)
+        self._last_cascade = {"tier": "full",
+                              "violations": out["impact"]["violations"],
+                              "cascade_proposal_id": None}
+        return out
 
     def confirm_retcon(self, proposal_id: str) -> int:
         """retcon 专属确认（冻结线豁免）：单事务双事件物化 + 事务后 C5 精确 stale。"""

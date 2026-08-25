@@ -105,6 +105,17 @@ def test_retcon_rename_materializes_and_keeps_alias(api, tmp_path):  # renames �
     assert alias["alias"] == "积分兑换"                # 旧名入 alias 可查
 
 
+def test_retcon_propose_syncs_last_cascade(api):  # T10：confirm 响应 cascade 键数据面
+    _seed(api, api._root)
+    out = api.propose_retcon(facts=[
+        {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "积分兑换",
+         "props": {"mechanism": {"level": 9}}}], reason="等级体系重排")
+    last = api.last_cascade()
+    assert last["tier"] == "full"
+    assert last["violations"] == out["impact"]["violations"]
+    assert last["cascade_proposal_id"] is None       # retcon 不产 diff 提案
+
+
 def test_confirm_rejects_retcon_proposal(api, tmp_path):  # 通用确认拦截锚定：无半应用
     _seed(api, tmp_path)
     out = retcon.propose_retcon(api, facts=[
