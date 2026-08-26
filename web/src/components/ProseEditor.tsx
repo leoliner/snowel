@@ -17,7 +17,7 @@ interface ProseEditorProps {
   readonly?: boolean
   // 外部选中章（App 经 FlowTree onSelectChapter 驱动）；null 时默认选首个章节
   chapterId?: string | null
-  // 空态引导：切换 App 工作区生成 tab（v1 无 tab，App 可留默认 no-op）
+  // 空态引导：切换 App 工作区"提案"tab（App 已接线 onGoGenerate，L22#3）
   onGoGenerate?: () => void
   // 编辑器内列表选中回调（App 同步顶栏卷·章 + FlowTree 高亮）
   onSelectChapter?: (chapter: Chapter) => void

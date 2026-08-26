@@ -85,6 +85,32 @@ describe('ForeshadowMap（伏笔时间线，W4）', () => {
     render(<ForeshadowMap />)
     expect(screen.getByText('暂无伏笔')).toBeInTheDocument()
   })
+
+  it('35 拍不溢出画布宽：slot 上限化压缩，条/点末端 ≤ 画布宽（L22#5）', () => {
+    const beats = Array.from({ length: 35 }, (_, i) => `mb${i + 1}`)
+    mockData<ForeshadowStatsResponse>({
+      items: beats.map((b, i) => ({
+        id: `f${i + 1}`,
+        name: `伏笔${i + 1}`,
+        planted_at: b,
+        // 偶数拍回收为下拍 → 区间条；尾拍仅种植 → 圆点，两类几何都覆盖
+        payoff_beat: i % 2 === 0 && i + 1 < beats.length ? beats[i + 1] : null,
+        status: i % 2 === 0 && i + 1 < beats.length ? 'paid' : 'planted',
+      })),
+    })
+    render(<ForeshadowMap />)
+    const host = screen.getByTestId('foreshadow-map')
+    const svg = host.querySelector('svg') as SVGSVGElement
+    const W = Number(svg.getAttribute('width'))
+    expect(W).toBe(320)
+    // 区间条右端 = x + width 不超画布；圆点右缘 = cx + DOT_R(3.5) 不超画布
+    svg.querySelectorAll('rect').forEach((r) => {
+      expect(Number(r.getAttribute('x')) + Number(r.getAttribute('width'))).toBeLessThanOrEqual(W)
+    })
+    svg.querySelectorAll('circle').forEach((c) => {
+      expect(Number(c.getAttribute('cx')) + 3.5).toBeLessThanOrEqual(W)
+    })
+  })
 })
 
 describe('RelationsGraph（角色关系圆环图，W4）', () => {

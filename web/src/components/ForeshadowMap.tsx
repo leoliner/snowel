@@ -46,7 +46,8 @@ export default function ForeshadowMap() {
       if (b && !beatOrder.includes(b)) beatOrder.push(b)
     }
   }
-  const slot = Math.max((W - LABEL_W - 8) / Math.max(beatOrder.length, 1), 8)
+  // L22#5：slot 上限化（原 floor 8 使 30+ 拍溢出画布宽）——拍多时压缩、永不超宽
+  const slot = Math.min((W - LABEL_W - 8) / Math.max(beatOrder.length, 1), 24)
   const xOf = (b: string | null) => (b ? beatOrder.indexOf(b) * slot : -1)
   // 轴标签（拍 id）text-muted 截断，防长 id 挤压
   const AXIS_H = 14

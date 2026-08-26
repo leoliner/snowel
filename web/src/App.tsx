@@ -120,6 +120,8 @@ export default function App() {
             <ProseEditor
               readonly={readonly}
               chapterId={selectedChapterId}
+              // L22#3：空态"去生成"切回工作区"提案"tab（原默认 no-op 死按钮）
+              onGoGenerate={() => setWorkspaceTab('proposals')}
               onSelectChapter={(ch) => setSelectedChapterId(ch.id)}
             />
           )}
