@@ -291,6 +291,21 @@ class SnowelAPI:
         backend = backend or _default_llm(self._conn)
         return self.extract_and_writeback(chapter_id, backend, model=model)
 
+    # 批量抽取（R3/TC-RT-05）：循环便捷入口——省操作不省调用，单章一次调用不变
+    def extract_many(self, chapter_ids: list[str], backend) -> list[dict]:
+        """按序循环单章抽取，返回逐章结果列表。
+
+        单章失败不吞：成功条目为抽取结果（含 chapter_id），失败条目为
+        {"chapter_id": ..., "error": ...}，调用方按 chapter_id 对齐。
+        """
+        results = []
+        for cid in chapter_ids:
+            try:
+                results.append(self.extract_and_writeback(cid, backend))
+            except Exception as e:
+                results.append({"chapter_id": cid, "error": str(e)})
+        return results
+
     def deviation(self, chapter_id: str) -> dict:
         from .writeback import deviation
         return deviation.report(self._conn, chapter_id)
@@ -392,6 +407,28 @@ class SnowelAPI:
                 "source_beat_id": source_beat_id,
                 "target_beat_id": target_beat_id,
                 "moved_foreshadows": moved})
+            projector.apply(conn)
+        return seq
+
+    # 低重要标记（R4/§6.3，TC-RT-05）：作者显式操作——单事件 + 投影，不走提案
+    def set_chapter_importance(self, chapter_id: str, importance: str) -> int:
+        """标记章重要度：importance ∈ {"low", "normal"} → chapter_importance_set 事件。
+
+        校验取值与 Chapter 节点存在后落事件并物化（R4：元数据改动事件化，
+        rebuild 后不漂移）。返回事件 seq。
+        """
+        if importance not in ("low", "normal"):
+            raise ValueError(f"importance 只允许 low/normal：{importance}")
+        conn = self._conn
+        row = conn.execute("SELECT types FROM nodes WHERE id=?",
+                           (chapter_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"章节节点不存在: {chapter_id}")
+        if "Chapter" not in json.loads(row["types"]):
+            raise ValueError(f"节点 {chapter_id} 不是 Chapter 节点")
+        with db.transaction(conn):
+            seq = events.append_event(conn, "chapter_importance_set", {
+                "chapter_id": chapter_id, "importance": importance})
             projector.apply(conn)
         return seq
 

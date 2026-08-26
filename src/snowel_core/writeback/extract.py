@@ -49,6 +49,13 @@ def extract_and_writeback(api, chapter_id: str, backend: GenerationBackend,
         (chapter_id,)).fetchone()
     if row is None or not row["prose"]:
         raise ValueError(f"章节 {chapter_id} 无镜像全文，先对账（reconcile）")
+    if model is None:
+        # R3/TC-RT-05：低重要章节 + 配置了小模型 → 成本路由；显式 model 恒优先
+        crow = conn.execute("SELECT types, props FROM nodes WHERE id=?",
+                            (chapter_id,)).fetchone()
+        if crow is not None and "Chapter" in json.loads(crow["types"]) \
+                and json.loads(crow["props"]).get("importance") == "low":
+            model = config.get(conn, "extraction.small_model") or None
     resp = backend.generate(_PROMPT.format(prose=row["prose"]), model=model)
     from ..llm.ports import parse_llm_json  # 函数级导入：ports 顶层反向引用本模块
     parsed = parse_llm_json(resp)

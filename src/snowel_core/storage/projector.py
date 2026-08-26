@@ -161,6 +161,20 @@ def _beat_merged(tx, payload: dict, seq: int):
 
 HANDLERS["beat_merged"] = _beat_merged
 
+def _chapter_importance_set(tx, payload: dict, seq: int):
+    # R4：低重要标记也必须事件化（append-only，rebuild 可重放）——
+    # chapter 节点 props.importance 随之更新（low/normal）
+    row = tx.execute("SELECT props FROM nodes WHERE id=?",
+                     (payload["chapter_id"],)).fetchone()
+    if row is None:  # 节点不存在时静默跳过（幂等重放安全）
+        return
+    p = json.loads(row["props"])
+    p["importance"] = payload["importance"]
+    tx.execute("UPDATE nodes SET props=? WHERE id=?",
+               (json.dumps(p, ensure_ascii=False), payload["chapter_id"]))
+
+HANDLERS["chapter_importance_set"] = _chapter_importance_set
+
 def _checkpoint(conn) -> int:
     row = conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()
     return row["seq"] if row else 0
