@@ -57,6 +57,26 @@ def test_search_and_audit_recent_facades(tmp_path):
         api.close()
 
 
+def test_search_default_limit_unified_with_fts(tmp_path, monkeypatch):
+    # L21：门面默认 limit=100（与 fts 内部默认统一）；不传 limit 时向下逐层
+    # 透传的行为锚（替换 retrieval.hybrid.search 捕获实收值）
+    import snowel_core.retrieval.hybrid as hybrid
+
+    seen = {}
+
+    def _capture(conn, q, limit, mode):
+        seen["limit"] = limit
+        return {}
+
+    monkeypatch.setattr(hybrid, "search", _capture)
+    api = SnowelAPI.init_project(tmp_path)
+    try:
+        api.search("林晚")
+    finally:
+        api.close()
+    assert seen["limit"] == 100
+
+
 def test_export_prose_ordered_from_mirror(tmp_path):
     api = SnowelAPI.init_project(tmp_path)
     try:

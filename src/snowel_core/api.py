@@ -84,7 +84,7 @@ class SnowelAPI:
         db.backup(self._conn, out_path)
 
     # 混合检索（Task 5/6）：壳一比一映射的只读门面
-    def search(self, q: str, mode: str = "hybrid", limit: int = 20) -> dict:
+    def search(self, q: str, mode: str = "hybrid", limit: int = 100) -> dict:
         from .retrieval import hybrid
         return hybrid.search(self._conn, q, limit, mode)
 

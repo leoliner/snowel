@@ -497,6 +497,26 @@ async def test_writeback_reject_auto(project):
     check.close()
 
 
+async def test_writeback_reject_auto_malformed_entries_400(project):
+    # L22#2：条目形状校验——畸形二元组（非 [target, id] 两元素列表）→ 400
+    # 而非 500（解包 TypeError/IndexError 曾逃逸事件循环）
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        bad = ([123],            # 条目不可解包
+               [["node"]],       # 单元素
+               [["node", "m1", "x"]],  # 三元素
+               ["字符串"],        # 逐字符静默拆
+               {"a": 1},         # 非数组
+               "oops")           # 顶层非数组
+        for payload in bad:
+            r = await c.post("/api/writeback/reject_auto",
+                             json={"entries": payload})
+            assert r.status_code == 400, payload
+        assert (await c.post("/api/writeback/reject_auto",
+                             json={})).status_code == 400  # 缺 entries 同口径
+
+
 async def test_writeback_reregister(project):
     api = SnowelAPI.open(project)
     pid = api.proposals.create("prose", {
