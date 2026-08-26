@@ -41,6 +41,8 @@ def _facts_event(tx, payload: dict, seq: int):
 HANDLERS = {
     "proposal_confirmed": _facts_event,
     "auto_canonized": _facts_event,
+    "inspiration_saved": _facts_event,        # TC-ON-12/§4.7：灵感原话落库
+    "derived_from_registered": _facts_event,  # TC-ON-12/§4.7：DERIVED_FROM 边
     # 其余 kind 由后续计划补齐；未知 kind 静默跳过不物化（防前向兼容炸库）
 }
 

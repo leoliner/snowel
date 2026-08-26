@@ -1,5 +1,6 @@
 # src/snowel_core/api.py
 import json
+import uuid
 from pathlib import Path
 from typing import Iterator
 
@@ -111,9 +112,11 @@ class SnowelAPI:
 
     # 生成环（E3/D7）：产出必进提案队列，门面不暴露任何直接返回生成文本的路径
     def ai_generate(self, artifact_type: str, locate: dict | None = None,
-                    extra: dict | None = None, backend=None) -> str:
+                    extra: dict | None = None, backend=None,
+                    derive_from: list[str] | None = None) -> str:
         from .flow import generate
-        return generate.ai_generate(self, artifact_type, locate, extra, backend)
+        return generate.ai_generate(self, artifact_type, locate, extra,
+                                    backend, derive_from)
 
     # 小雪花章级展开（FL-04）：按序产三提案（意图→微节拍组→正文），不自动确认
     def expand_chapter(self, chapter_id: str, backend,
@@ -196,6 +199,21 @@ class SnowelAPI:
             from .consistency import wiring
             pre_violations = wiring.analyze(self._conn, facts, "full")
         seq = self.proposals.confirm(proposal_id, exclude=exclude)
+        # TC-ON-12/§4.7：灵感提炼物确认后建 DERIVED_FROM 边（src=产物节点，
+        # dst=灵感节点）——独立事件随投影物化，重建可重放
+        # （同 beat_merged/volume_sealed 模式：域操作自带事件 kind）
+        if payload.get("derive_from"):
+            product_ids = [f["id"] for f in facts if f.get("fact") == "node"]
+            if product_ids:
+                with db.transaction(self._conn):
+                    events.append_event(
+                        self._conn, "derived_from_registered",
+                        {"facts": [{"fact": "edge", "id": str(uuid.uuid4()),
+                                    "src": src, "dst": dst,
+                                    "kind": "DERIVED_FROM", "props": {}}
+                                   for src in product_ids
+                                   for dst in payload["derive_from"]]})
+                    projector.apply(self._conn)
         if p["kind"] == "prose":
             from .writeback import mirror
             mirror.write_prose(self._conn, self._root,
@@ -376,6 +394,28 @@ class SnowelAPI:
                 "moved_foreshadows": moved})
             projector.apply(conn)
         return seq
+
+    # 灵感层（§4.7，TC-ON-12）：作者手输原话直接落事件（不走提案，铁律 3 不约束作者）
+    def save_inspiration(self, text: str) -> str:
+        """保存灵感原话：追加 inspiration_saved 事件（facts 含 Inspiration 节点）。
+
+        作者手输属显式操作——原话全文存 props.inspiration.text 永久保留，
+        后续提炼物经 DERIVED_FROM 边指回本节点（R2）。
+        """
+        iid = str(uuid.uuid4())
+        with db.transaction(self._conn):
+            events.append_event(self._conn, "inspiration_saved", {
+                "facts": [{"fact": "node", "id": iid, "types": ["Inspiration"],
+                           "name": text,
+                           "props": {"inspiration": {"text": text}}}]})
+            projector.apply(self._conn)
+        return iid
+
+    def inspirations(self) -> list[dict]:
+        """灵感列表：Inspiration 活跃节点全集（text 取 props.inspiration.text）。"""
+        return [{"id": r["id"], "name": r["name"],
+                 "text": json.loads(r["props"])["inspiration"]["text"]}
+                for r in self.find_nodes(type="Inspiration")]
 
     # 聊天代理（W1/W6）：JSON 指令循环；工具白名单不含确认类（§7.1 红线）
     def chat(self, message: str, history=None, backend=None,
