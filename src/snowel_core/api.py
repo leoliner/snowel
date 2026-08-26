@@ -345,6 +345,38 @@ class SnowelAPI:
         return foreshadow.register(self, name, planted_at, origin,
                                    payoff_beat, note)
 
+    # 拍合并（D6/TC-ON-08）：校验 → 单事件 beat_merged（R1）→ 物化
+    def merge_beats(self, source_beat_id: str, target_beat_id: str) -> int:
+        """合并两拍：源拍失效，其伏笔引用迁移到目标拍，返回事件 seq。
+
+        校验两节点存在、均含 MicroBeat 类型、id 不同；预查
+        props.foreshadow.planted_at == source 的 Foreshadow 节点，把迁移
+        清单（old/new）先算后写进事件载荷——投影器严格按载荷执行。
+        """
+        conn = self._conn
+        if source_beat_id == target_beat_id:
+            raise ValueError(f"源拍与目标拍不能相同: {source_beat_id}")
+        for nid in (source_beat_id, target_beat_id):
+            row = conn.execute(
+                "SELECT types FROM nodes WHERE id=?", (nid,)).fetchone()
+            if row is None:
+                raise ValueError(f"拍节点不存在: {nid}")
+            if "MicroBeat" not in json.loads(row["types"]):
+                raise ValueError(f"合并两端必须是 MicroBeat 节点: {nid}")
+        moved = [{"foreshadow_id": r["id"], "old": source_beat_id,
+                  "new": target_beat_id} for r in conn.execute(
+            """SELECT id FROM nodes
+               WHERE types LIKE '%"Foreshadow"%'
+                 AND json_extract(props, '$.foreshadow.planted_at') = ?""",
+            (source_beat_id,))]
+        with db.transaction(conn):
+            seq = events.append_event(conn, "beat_merged", {
+                "source_beat_id": source_beat_id,
+                "target_beat_id": target_beat_id,
+                "moved_foreshadows": moved})
+            projector.apply(conn)
+        return seq
+
     # 聊天代理（W1/W6）：JSON 指令循环；工具白名单不含确认类（§7.1 红线）
     def chat(self, message: str, history=None, backend=None,
              max_turns: int = 8) -> dict:

@@ -92,9 +92,13 @@ def _addr_key(props: dict) -> tuple:
     return (a.get("volume", 0), a.get("chapter", 0), a.get("scene", 0), a.get("beat", 0))
 
 def recompute_story_order(conn: sqlite3.Connection) -> None:
-    rows = conn.execute("SELECT id, props FROM nodes WHERE active=1").fetchall()
+    # 不变量：story_order 仅活跃有地址节点有意义，其余一律清为 NULL——失效节点
+    # 若不清，_beat_order（rules.py）会把它解析成有限序而非"未解析→None（±∞ 保守）"
+    rows = conn.execute("SELECT id, props, active FROM nodes").fetchall()
     addressed = []
     for r in rows:
+        if not r["active"]:
+            continue
         p = json.loads(r["props"])
         if p.get("address"):
             addressed.append((_addr_key(p), r["id"]))
@@ -139,6 +143,21 @@ HANDLERS.update({
     "prose_hash_registered": _prose_event,
     "prose_external_change": _prose_event,
 })
+
+def _beat_merged(tx, payload: dict, seq: int):
+    # D6：源拍失效；伏笔引用按 R1 载荷迁移（目标拍不动、派生序由 apply 尾部重算）
+    tx.execute("UPDATE nodes SET active=0 WHERE id=?", (payload["source_beat_id"],))
+    for m in payload.get("moved_foreshadows", []):
+        row = tx.execute("SELECT props FROM nodes WHERE id=?",
+                         (m["foreshadow_id"],)).fetchone()
+        if row is None:  # 载荷自含、但节点不存在时静默跳过（幂等重放安全）
+            continue
+        p = json.loads(row["props"])
+        p.setdefault("foreshadow", {})["planted_at"] = m["new"]
+        tx.execute("UPDATE nodes SET props=? WHERE id=?",
+                   (json.dumps(p, ensure_ascii=False), m["foreshadow_id"]))
+
+HANDLERS["beat_merged"] = _beat_merged
 
 def _checkpoint(conn) -> int:
     row = conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()
