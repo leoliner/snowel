@@ -34,10 +34,19 @@ def _prepare_locate(conn, strategy: str, locate: dict | None) -> dict:
 
 
 def ai_generate(api, artifact_type: str, locate: dict | None = None,
-                extra: dict | None = None, backend=None) -> str:
+                extra: dict | None = None, backend=None,
+                derive_from: list[str] | None = None) -> str:
     """三口之一（E3）：内部固定第一步 compose_context；产出必进提案队列。"""
     if artifact_type not in ARTIFACTS:
         raise ValueError(f"未知产物类型 {artifact_type}（可用：{sorted(ARTIFACTS)}）")
+    if derive_from:  # TC-ON-12/§4.7：仅 Inspiration 节点可作为提炼来源（fail-fast）
+        for nid in derive_from:
+            row = api._conn.execute(
+                "SELECT types FROM nodes WHERE id=? AND active=1",
+                (nid,)).fetchone()
+            if row is None or "Inspiration" not in json.loads(row["types"]):
+                raise ValueError(
+                    f"derive_from 必须是已有 Inspiration 节点 id: {nid}")
     extra = extra or {}
     backend = backend or _default_backend(api._conn)
     spec = ARTIFACTS[artifact_type]
@@ -58,6 +67,8 @@ def ai_generate(api, artifact_type: str, locate: dict | None = None,
     payload = {"locate": locate or {}, "draft": parsed.get("draft", ""),
                "facts": parsed.get("facts", []),
                "appeared": parsed.get("appeared", [])}
+    if derive_from:  # TC-ON-12/§4.7：提炼来源透传（confirm 时建 DERIVED_FROM 边）
+        payload["derive_from"] = list(derive_from)
     if artifact_type == "prose":  # C1 确认链契约：补文件代写两键（纯增量，四键不动）
         payload["chapter_id"] = (locate or {}).get("chapter")
         payload["content"] = parsed.get("draft", "")

@@ -12,6 +12,7 @@
 | `storage/test_projector.py` | `storage/projector.py`（投影器/story_order/rebuild） | TC-EV-01/02/05、TC-ON-02/07/09/10、C2 边撤回回归 |
 | `storage/test_queries.py` | `storage/queries.py`（state_at/图查询） | TC-EV-03/04、TC-ON-01/02 |
 | `storage/test_lease.py` | `storage/lease.py`（单写者租约） | TC-SH-04/05（核心层） |
+| `storage/test_vec.py` | `storage/vec.py`（sqlite-vec 扩展/嵌入 provider） | TC-RT-06（provider 切换/按项目重建）、L8 原子重建回归 |
 | `ontology/test_ontology.py` | `ontology/`（属性组注册表/completeness） | TC-ON-03/04/05（推导面） |
 | `proposal/test_proposal.py` | `proposal/queue.py`（提案状态机） | TC-PR-01~07、TC-EV-07/08 |
 | `api/test_api.py` | `api.py`（门面端到端） | 冒烟：init→create→confirm→query→rebuild |
@@ -21,7 +22,7 @@
 | `web/`（vitest：App / sse / components/*.test.tsx） | Web 前端（React 三栏界面；vitest + @testing-library/react，vi.mock 数据层不发真实请求） | TC-SH-08 组件锚（浏览器级 E2E 豁免 W3） |
 | `retrieval/test_context.py` | `retrieval/`（compose_context/审计/hybrid） | TC-RT-01/02/03、TC-ON-02（FTS 面） |
 | `writeback/`（test_mirror / test_confirm_prose / test_extract / test_hook / test_active_and_deviation / test_review） | `writeback/`（镜像对账/确认即写/抽取分级/hook/active+偏离/auto 否决） | TC-WB-01~08、TC-PR-10、TC-ON-05/06、TC-FL-05 |
-| `flow/`（test_generate / test_snowflake / test_state / test_revision / test_volume） | `flow/`（生成环路由/小雪花展开/流程状态/统一 revision/卷级重放） | TC-FL-01~04/06、TC-PR-02/08/09、TC-RT-04 |
+| `flow/`（test_generate / test_snowflake / test_state / test_revision / test_volume / test_inspiration） | `flow/`（生成环路由/小雪花展开/流程状态/统一 revision/卷级重放/灵感层） | TC-FL-01~04/06、TC-PR-02/08/09、TC-RT-04、TC-ON-12、ON-14 补锚 |
 
 ## 2. 运行
 

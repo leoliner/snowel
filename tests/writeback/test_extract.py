@@ -24,6 +24,8 @@ def _prepare(api, tmp_path):
     with db.transaction(api._conn):
         events.append_event(api._conn, "proposal_confirmed", {
             "artifact_type": "t", "facts": [
+                {"fact": "node", "id": "ch1", "types": ["Chapter"],
+                 "name": "第一章", "props": {}},
                 {"fact": "node", "id": "hero", "types": ["Character"],
                  "name": "林晚", "props": {}}]})
         projector.apply(api._conn)
@@ -111,3 +113,67 @@ def test_extract_zero_facts_preserves_appeared(api, tmp_path):  # L15：零事�
     r = api.extract_and_writeback("ch1", backend=FakeBackend([resp]))
     assert r["proposal_id"] is None and r["auto_event_seq"] is None
     assert r["appeared"] == ["hero"]            # 零事实路径不丢 appeared（回归锚）
+
+
+def test_low_importance_routes_small_model(api, tmp_path):  # TC-RT-05 / §6.3
+    from snowel_core.storage import config
+    _prepare(api, tmp_path)
+    seq = api.set_chapter_importance("ch1", "low")
+    # R4：元数据改动必须事件化——chapter_importance_set 载荷落日志、投影更新 props
+    p = json.loads(api._conn.execute(
+        "SELECT payload FROM events WHERE seq=?", (seq,)).fetchone()["payload"])
+    assert p == {"chapter_id": "ch1", "importance": "low"}
+    assert json.loads(api._conn.execute(
+        "SELECT props FROM nodes WHERE id='ch1'").fetchone()["props"])["importance"] == "low"
+    config.set(api._conn, "extraction.small_model", "qwen-small")
+    fake = FakeBackend([EXTRACT_OK])
+    r = api.extract_and_writeback("ch1", backend=fake)
+    assert fake.calls[-1]["model"] == "qwen-small"   # 成本控制生效
+    # 分级语义不变：high→提案、low→auto_canonized（既有断言样式复跑）
+    assert r["proposal_id"] is not None
+    assert r["auto_event_seq"] is not None
+    assert "修辞" in fake.calls[-1]["prompt"]       # 提示词原样，仅换模型
+
+
+def test_small_model_unset_keeps_default(api, tmp_path):  # 向后兼容
+    _prepare(api, tmp_path)
+    # 未配置 extraction.small_model → model=None，与现状逐字节一致
+    fake = FakeBackend([EXTRACT_OK])
+    api.extract_and_writeback("ch1", backend=fake)
+    assert fake.calls[-1]["model"] is None
+    # 标记 normal 同样不路由（只有 == "low" 命中）
+    api.set_chapter_importance("ch1", "normal")
+    fake2 = FakeBackend([EXTRACT_OK])
+    api.extract_and_writeback("ch1", backend=fake2)
+    assert fake2.calls[-1]["model"] is None
+
+
+def test_explicit_model_overrides_small_model(api, tmp_path):
+    # 路由优先级：显式 model 参数 > extraction.small_model 配置 > None
+    from snowel_core.storage import config
+    _prepare(api, tmp_path)
+    api.set_chapter_importance("ch1", "low")
+    config.set(api._conn, "extraction.small_model", "qwen-small")
+    fake = FakeBackend([EXTRACT_OK])
+    api.extract_and_writeback("ch1", backend=fake, model="qwen-max")
+    assert fake.calls[-1]["model"] == "qwen-max"
+
+
+def test_set_chapter_importance_validates(api, tmp_path):
+    _prepare(api, tmp_path)
+    import pytest
+    with pytest.raises(ValueError, match="chapter_importance_set|不存在|只允许"):
+        api.set_chapter_importance("nope", "low")       # 章节节点不存在
+    with pytest.raises(ValueError, match="只允许"):
+        api.set_chapter_importance("ch1", "high")       # 非法取值
+    with pytest.raises(ValueError, match="Chapter"):
+        api.set_chapter_importance("hero", "low")       # 非 Chapter 节点
+
+
+def test_extract_many_collects_per_chapter_failures(api, tmp_path):  # R3：省操作不省调用
+    _prepare(api, tmp_path)
+    fake = FakeBackend([EXTRACT_OK])
+    results = api.extract_many(["ch1", "ch2"], fake)
+    assert results[0]["chapter_id"] == "ch1" and results[0]["auto_event_seq"] is not None
+    assert results[1]["chapter_id"] == "ch2" and "error" in results[1]  # 失败不静默消失
+    assert "镜像" in results[1]["error"]

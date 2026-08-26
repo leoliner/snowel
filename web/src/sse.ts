@@ -16,15 +16,18 @@ export async function streamSSE(
     signal,
   })
   if (!res.ok) {
+    // L22#6：先读全文再解析——res.json() 会消费 body，其后的 res.text() 必失败，
+    // 原"回落响应文本"分支从未生效；detail 优先，非 JSON 错误体原样入错误消息
+    const raw = await res.text().catch(() => '')
     let detail = ''
     try {
-      const json = await res.json()
-      detail = typeof json?.detail === 'string' ? json.detail : ''
+      const json: unknown = JSON.parse(raw)
+      const d = (json as { detail?: unknown } | null)?.detail
+      if (typeof d === 'string') detail = d
     } catch {
-      // 非 JSON 错误体，回落响应文本
+      // 非 JSON 错误体：raw 原样作为错误消息
     }
-    const text = detail || (await res.text().catch(() => ''))
-    throw new Error(text || `请求失败（${res.status} ${res.statusText}）`)
+    throw new Error(detail || raw || `请求失败（${res.status} ${res.statusText}）`)
   }
   if (!res.body) throw new Error('响应无 body 流')
   const reader = res.body.getReader()

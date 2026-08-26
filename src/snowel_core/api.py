@@ -1,5 +1,6 @@
 # src/snowel_core/api.py
 import json
+import uuid
 from pathlib import Path
 from typing import Iterator
 
@@ -83,7 +84,7 @@ class SnowelAPI:
         db.backup(self._conn, out_path)
 
     # 混合检索（Task 5/6）：壳一比一映射的只读门面
-    def search(self, q: str, mode: str = "hybrid", limit: int = 20) -> dict:
+    def search(self, q: str, mode: str = "hybrid", limit: int = 100) -> dict:
         from .retrieval import hybrid
         return hybrid.search(self._conn, q, limit, mode)
 
@@ -111,9 +112,11 @@ class SnowelAPI:
 
     # 生成环（E3/D7）：产出必进提案队列，门面不暴露任何直接返回生成文本的路径
     def ai_generate(self, artifact_type: str, locate: dict | None = None,
-                    extra: dict | None = None, backend=None) -> str:
+                    extra: dict | None = None, backend=None,
+                    derive_from: list[str] | None = None) -> str:
         from .flow import generate
-        return generate.ai_generate(self, artifact_type, locate, extra, backend)
+        return generate.ai_generate(self, artifact_type, locate, extra,
+                                    backend, derive_from)
 
     # 小雪花章级展开（FL-04）：按序产三提案（意图→微节拍组→正文），不自动确认
     def expand_chapter(self, chapter_id: str, backend,
@@ -196,6 +199,21 @@ class SnowelAPI:
             from .consistency import wiring
             pre_violations = wiring.analyze(self._conn, facts, "full")
         seq = self.proposals.confirm(proposal_id, exclude=exclude)
+        # TC-ON-12/§4.7：灵感提炼物确认后建 DERIVED_FROM 边（src=产物节点，
+        # dst=灵感节点）——独立事件随投影物化，重建可重放
+        # （同 beat_merged/volume_sealed 模式：域操作自带事件 kind）
+        if payload.get("derive_from"):
+            product_ids = [f["id"] for f in facts if f.get("fact") == "node"]
+            if product_ids:
+                with db.transaction(self._conn):
+                    events.append_event(
+                        self._conn, "derived_from_registered",
+                        {"facts": [{"fact": "edge", "id": str(uuid.uuid4()),
+                                    "src": src, "dst": dst,
+                                    "kind": "DERIVED_FROM", "props": {}}
+                                   for src in product_ids
+                                   for dst in payload["derive_from"]]})
+                    projector.apply(self._conn)
         if p["kind"] == "prose":
             from .writeback import mirror
             mirror.write_prose(self._conn, self._root,
@@ -273,6 +291,21 @@ class SnowelAPI:
         backend = backend or _default_llm(self._conn)
         return self.extract_and_writeback(chapter_id, backend, model=model)
 
+    # 批量抽取（R3/TC-RT-05）：循环便捷入口——省操作不省调用，单章一次调用不变
+    def extract_many(self, chapter_ids: list[str], backend) -> list[dict]:
+        """按序循环单章抽取，返回逐章结果列表。
+
+        单章失败不吞：成功条目为抽取结果（含 chapter_id），失败条目为
+        {"chapter_id": ..., "error": ...}，调用方按 chapter_id 对齐。
+        """
+        results = []
+        for cid in chapter_ids:
+            try:
+                results.append(self.extract_and_writeback(cid, backend))
+            except Exception as e:
+                results.append({"chapter_id": cid, "error": str(e)})
+        return results
+
     def deviation(self, chapter_id: str) -> dict:
         from .writeback import deviation
         return deviation.report(self._conn, chapter_id)
@@ -344,6 +377,82 @@ class SnowelAPI:
         from .consistency import foreshadow
         return foreshadow.register(self, name, planted_at, origin,
                                    payoff_beat, note)
+
+    # 拍合并（D6/TC-ON-08）：校验 → 单事件 beat_merged（R1）→ 物化
+    def merge_beats(self, source_beat_id: str, target_beat_id: str) -> int:
+        """合并两拍：源拍失效，其伏笔引用迁移到目标拍，返回事件 seq。
+
+        校验两节点存在、均含 MicroBeat 类型、id 不同；预查
+        props.foreshadow.planted_at == source 的 Foreshadow 节点，把迁移
+        清单（old/new）先算后写进事件载荷——投影器严格按载荷执行。
+        """
+        conn = self._conn
+        if source_beat_id == target_beat_id:
+            raise ValueError(f"源拍与目标拍不能相同: {source_beat_id}")
+        for nid in (source_beat_id, target_beat_id):
+            row = conn.execute(
+                "SELECT types FROM nodes WHERE id=?", (nid,)).fetchone()
+            if row is None:
+                raise ValueError(f"拍节点不存在: {nid}")
+            if "MicroBeat" not in json.loads(row["types"]):
+                raise ValueError(f"合并两端必须是 MicroBeat 节点: {nid}")
+        moved = [{"foreshadow_id": r["id"], "old": source_beat_id,
+                  "new": target_beat_id} for r in conn.execute(
+            """SELECT id FROM nodes
+               WHERE types LIKE '%"Foreshadow"%'
+                 AND json_extract(props, '$.foreshadow.planted_at') = ?""",
+            (source_beat_id,))]
+        with db.transaction(conn):
+            seq = events.append_event(conn, "beat_merged", {
+                "source_beat_id": source_beat_id,
+                "target_beat_id": target_beat_id,
+                "moved_foreshadows": moved})
+            projector.apply(conn)
+        return seq
+
+    # 低重要标记（R4/§6.3，TC-RT-05）：作者显式操作——单事件 + 投影，不走提案
+    def set_chapter_importance(self, chapter_id: str, importance: str) -> int:
+        """标记章重要度：importance ∈ {"low", "normal"} → chapter_importance_set 事件。
+
+        校验取值与 Chapter 节点存在后落事件并物化（R4：元数据改动事件化，
+        rebuild 后不漂移）。返回事件 seq。
+        """
+        if importance not in ("low", "normal"):
+            raise ValueError(f"importance 只允许 low/normal：{importance}")
+        conn = self._conn
+        row = conn.execute("SELECT types FROM nodes WHERE id=?",
+                           (chapter_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"章节节点不存在: {chapter_id}")
+        if "Chapter" not in json.loads(row["types"]):
+            raise ValueError(f"节点 {chapter_id} 不是 Chapter 节点")
+        with db.transaction(conn):
+            seq = events.append_event(conn, "chapter_importance_set", {
+                "chapter_id": chapter_id, "importance": importance})
+            projector.apply(conn)
+        return seq
+
+    # 灵感层（§4.7，TC-ON-12）：作者手输原话直接落事件（不走提案，铁律 3 不约束作者）
+    def save_inspiration(self, text: str) -> str:
+        """保存灵感原话：追加 inspiration_saved 事件（facts 含 Inspiration 节点）。
+
+        作者手输属显式操作——原话全文存 props.inspiration.text 永久保留，
+        后续提炼物经 DERIVED_FROM 边指回本节点（R2）。
+        """
+        iid = str(uuid.uuid4())
+        with db.transaction(self._conn):
+            events.append_event(self._conn, "inspiration_saved", {
+                "facts": [{"fact": "node", "id": iid, "types": ["Inspiration"],
+                           "name": text,
+                           "props": {"inspiration": {"text": text}}}]})
+            projector.apply(self._conn)
+        return iid
+
+    def inspirations(self) -> list[dict]:
+        """灵感列表：Inspiration 活跃节点全集（text 取 props.inspiration.text）。"""
+        return [{"id": r["id"], "name": r["name"],
+                 "text": json.loads(r["props"])["inspiration"]["text"]}
+                for r in self.find_nodes(type="Inspiration")]
 
     # 聊天代理（W1/W6）：JSON 指令循环；工具白名单不含确认类（§7.1 红线）
     def chat(self, message: str, history=None, backend=None,

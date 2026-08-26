@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 # 用 starlette 基类而非 fastapi 子类：StaticFiles 抛的是基类，
 # 以子类捕获（except fastapi.HTTPException）会漏接
-from starlette.concurrency import iterate_in_threadpool
+from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.types import Scope
@@ -318,8 +318,16 @@ def create_app(project_root: str | Path,
                                     body: dict | None = None) -> dict[str, Any]:
         """auto 条目事后否决（C11，不受冻结线）：entries=[[target, id], ...]。"""
         api = request.app.state.api
-        entries = [(e[0], e[1]) for e in _require(body, "entries")]
-        return api.reject_auto(entries, reason=(body or {}).get("reason"))
+        entries = _require(body, "entries")
+        # L22#2：畸形条目（非二元组/元素类型错）解包炸 TypeError/IndexError
+        # 或静默写入语义空 retraction → 500；先形状校验统一 ValueError 映射 400
+        if not isinstance(entries, list) or any(
+                not (isinstance(e, (list, tuple)) and len(e) == 2
+                     and isinstance(e[0], str) and isinstance(e[1], str))
+                for e in entries):
+            raise ValueError("entries 须为 [[target, id], ...] 字符串二元组列表")
+        return api.reject_auto([(e[0], e[1]) for e in entries],
+                               reason=(body or {}).get("reason"))
 
     @app.post("/api/writeback/reregister",
               dependencies=[Depends(_require_write)])
@@ -383,12 +391,14 @@ def create_app(project_root: str | Path,
     async def chat(request: Request,
                    body: dict | None = None) -> dict[str, Any]:
         """非流式聚合聊天（W6 兼容口，测试与简单客户端用）：一比一 api.chat，
-        events 为除 done 外全部事件 + proposal_ids。"""
+        events 为除 done 外全部事件 + proposal_ids。阻塞调用经
+        run_in_threadpool（L22#4：聚合调用不阻塞事件循环，与流式同款）。"""
         api = request.app.state.api
         message = _require(body, "message")
         history = _validate_history((body or {}).get("history"))
-        return api.chat(message, history,
-                        backend=request.app.state.llm_backend or None)
+        return await run_in_threadpool(
+            api.chat, message, history,
+            backend=request.app.state.llm_backend or None)
 
     # ---- 只读 API 面（Task 5）：全部 GET，一比一转发 api 门面，pid 缺失统一 404。
     # 只读降级读不限（TC-SH-04）——不挂写守卫；db 触碰端点一律 async def

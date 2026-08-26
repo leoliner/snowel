@@ -46,12 +46,25 @@ describe('streamSSE（fetch 流式 SSE 行解析，W6/T8）', () => {
       ok: false,
       status: 409,
       statusText: 'Conflict',
-      json: async () => ({ detail: '只读会话：写租约由 web:1 持有' }),
-      text: async () => '',
+      text: async () => JSON.stringify({ detail: '只读会话：写租约由 web:1 持有' }),
     })
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(streamSSE('/api/chat/stream', {}, () => {})).rejects.toThrow(
       '只读会话：写租约由 web:1 持有')
+  })
+
+  it('非 2xx 非 JSON 错误体：错误消息含原始响应文本（L22#6）', async () => {
+    const fetchMock = vi.fn()
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: async () => '内部错误：生成失败（无 JSON）',
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(streamSSE('/api/chat/stream', {}, () => {})).rejects.toThrow(
+      '内部错误：生成失败（无 JSON）')
   })
 })

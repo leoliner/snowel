@@ -109,6 +109,19 @@ describe('T13 工作区 tab（提案/可视化互斥，ui-design-01 §3）', () 
     expect(screen.getByTestId('proposal-list')).toBeInTheDocument()
     expect(screen.queryByTestId('viz-sections')).not.toBeInTheDocument()
   })
+
+  it('空态"去生成"按钮：中栏空态引导切回"提案"tab（L22#3 App 接线）', () => {
+    mockSession({ ...writableSession, flow: { ...writableSession.flow, volumes: [] } })
+    render(<App />)
+    // 先切到"可视化"tab，验证空态按钮把工作区切回提案面板
+    fireEvent.click(screen.getByRole('tab', { name: '可视化' }))
+    expect(screen.getByTestId('viz-sections')).toBeInTheDocument()
+    expect(screen.getByText('还没有章节——生成第一个场景提案')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '去生成' }))
+    expect(screen.getByRole('tab', { name: '提案' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('proposal-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('viz-sections')).not.toBeInTheDocument()
+  })
 })
 
 describe('T12 遗留：聊天入队提案 → 去确认（T13：切回"提案"tab + refreshKey）', () => {
