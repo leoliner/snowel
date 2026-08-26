@@ -319,12 +319,13 @@ def create_app(project_root: str | Path,
         """auto 条目事后否决（C11，不受冻结线）：entries=[[target, id], ...]。"""
         api = request.app.state.api
         entries = _require(body, "entries")
-        # L22#2：畸形条目（非二元组）解包炸 TypeError/IndexError → 500，
-        # 先形状校验统一 ValueError 映射 400
+        # L22#2：畸形条目（非二元组/元素类型错）解包炸 TypeError/IndexError
+        # 或静默写入语义空 retraction → 500；先形状校验统一 ValueError 映射 400
         if not isinstance(entries, list) or any(
-                not (isinstance(e, (list, tuple)) and len(e) == 2)
+                not (isinstance(e, (list, tuple)) and len(e) == 2
+                     and isinstance(e[0], str) and isinstance(e[1], str))
                 for e in entries):
-            raise ValueError("entries 须为 [[target, id], ...] 二元组列表")
+            raise ValueError("entries 须为 [[target, id], ...] 字符串二元组列表")
         return api.reject_auto([(e[0], e[1]) for e in entries],
                                reason=(body or {}).get("reason"))
 

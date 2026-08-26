@@ -507,6 +507,8 @@ async def test_writeback_reject_auto_malformed_entries_400(project):
                [["node"]],       # 单元素
                [["node", "m1", "x"]],  # 三元素
                ["字符串"],        # 逐字符静默拆
+               [[123, "m1"]],    # target 非 str
+               [["node", None]],  # target_id 非 str
                {"a": 1},         # 非数组
                "oops")           # 顶层非数组
         for payload in bad:
