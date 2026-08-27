@@ -410,6 +410,38 @@ class SnowelAPI:
             projector.apply(conn)
         return seq
 
+    # 拍删除（addendum §2.1/TC-ON-17）：校验 → 事务内预查伏笔引用 → 单事件 beat_deleted
+    def delete_beat(self, beat_id: str, reason: str | None = None) -> int:
+        """删除拍：追加 beat_deleted 事件使该拍失效，返回事件 seq。
+
+        校验节点存在、含 MicroBeat 类型（R1：不查 active——已合并失效的拍
+        仍可显式删除）；事务内预查 props.foreshadow.planted_at 引用，
+        >0 则拒绝（严格拒绝语义）。通过则单事务追加事件并物化。
+        """
+        conn = self._conn
+        row = conn.execute(
+            "SELECT types FROM nodes WHERE id=?", (beat_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"拍节点不存在: {beat_id}")
+        if "MicroBeat" not in json.loads(row["types"]):
+            raise ValueError(f"删除对象必须是 MicroBeat 节点: {beat_id}")
+        payload = {"beat_id": beat_id}
+        if reason is not None:
+            payload["reason"] = reason
+        with db.transaction(conn):
+            refs = conn.execute(
+                """SELECT id FROM nodes
+                   WHERE types LIKE '%"Foreshadow"%'
+                     AND json_extract(props, '$.foreshadow.planted_at') = ?""",
+                (beat_id,)).fetchall()
+            if refs:  # 事务内预查：拒绝不留半事件，与追加同锁窗口无 TOCTOU
+                raise ValueError(
+                    f"该拍承载 {len(refs)} 个伏笔引用，"
+                    "先 merge_beats 到承接拍或迁移伏笔")
+            seq = events.append_event(conn, "beat_deleted", payload)
+            projector.apply(conn)
+        return seq
+
     # 低重要标记（R4/§6.3，TC-RT-05）：作者显式操作——单事件 + 投影，不走提案
     def set_chapter_importance(self, chapter_id: str, importance: str) -> int:
         """标记章重要度：importance ∈ {"low", "normal"} → chapter_importance_set 事件。

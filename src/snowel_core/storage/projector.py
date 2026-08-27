@@ -161,6 +161,13 @@ def _beat_merged(tx, payload: dict, seq: int):
 
 HANDLERS["beat_merged"] = _beat_merged
 
+def _beat_deleted(tx, payload: dict, seq: int):
+    # addendum §2.1：拍删除 = 源拍失效同款；story_order 清 NULL 由 apply 尾部
+    # recompute 既有机制处理（valid_until_beat 指向该拍的边随之自然开放端）
+    tx.execute("UPDATE nodes SET active=0 WHERE id=?", (payload["beat_id"],))
+
+HANDLERS["beat_deleted"] = _beat_deleted
+
 def _chapter_importance_set(tx, payload: dict, seq: int):
     # R4：低重要标记也必须事件化（append-only，rebuild 可重放）——
     # chapter 节点 props.importance 随之更新（low/normal）

@@ -16,7 +16,7 @@
 | `ontology/test_ontology.py` | `ontology/`（属性组注册表/completeness） | TC-ON-03/04/05（推导面） |
 | `proposal/test_proposal.py` | `proposal/queue.py`（提案状态机） | TC-PR-01~07、TC-EV-07/08 |
 | `api/test_api.py` | `api.py`（门面端到端） | 冒烟：init→create→confirm→query→rebuild |
-| `consistency/`（test_engine / test_rules_* / test_seal / test_wiring / test_deathbeat / test_retcon / test_foreshadow） | `consistency/`（级联引擎/封卷/retcon/伏笔注册） | TC-CC-01~08、TC-WB-08、TC-ON-10 后半、TC-ON-16、TC-PR-02 retcon 面 |
+| `consistency/`（test_engine / test_rules_* / test_seal / test_wiring / test_deathbeat / test_retcon / test_foreshadow） | `consistency/`（级联引擎/封卷/retcon/伏笔注册） | TC-CC-01~08、TC-WB-08、TC-ON-10 后半、TC-ON-16、TC-ON-17、TC-PR-02 retcon 面 |
 | `shell/`（test_project / test_mcp_server / test_cli / test_lease_integration / test_web_server） | 壳包 `snowel`（project.py/cli.py/mcp_server.py/web_server.py） | TC-SH-01/02/04/05/06、TC-SH-03 子集、TC-SH-07（status/backup/export）、TC-SH-08 面（test_web_server：租约/写守卫/写 API/聊天约束/端到端） |
 | `llm/`（test_backend / test_embed / test_chat） | `llm/`（backend 协议/litellm 适配、embed provider 接口、聊天代理 JSON 指令循环） | TC-RT-05（小模型路由面）、W1 聊天代理（§7.1） |
 | `web/`（vitest：App / sse / components/*.test.tsx） | Web 前端（React 三栏界面；vitest + @testing-library/react，vi.mock 数据层不发真实请求） | TC-SH-08 组件锚（浏览器级 E2E 豁免 W3） |

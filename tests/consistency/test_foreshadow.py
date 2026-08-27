@@ -107,6 +107,67 @@ def test_foreshadow_chapter_location_view_consistent(api):  # ON-13 补锚
     assert item["status"] == "paid"
 
 
+def test_delete_beat_rejects_foreshadow_reference(api):  # TC-ON-17 前半
+    # 伏笔 planted_at=mb1 已确认 → delete_beat("mb1") ValueError
+    _seed_beat(api)
+    pid = api.register_foreshadow("怀表", planted_at="mb1")
+    api.confirm(pid)
+    n_events = api._conn.execute(
+        "SELECT COUNT(*) FROM events").fetchone()[0]
+    with pytest.raises(ValueError, match="该拍承载 1 个伏笔引用"):
+        api.delete_beat("mb1")
+    # 拒绝不留半事件：事件日志无新增（事务原子）
+    assert api._conn.execute(
+        "SELECT COUNT(*) FROM events").fetchone()[0] == n_events
+
+
+def test_delete_beat_empty_succeeds(api):  # TC-ON-17 后半
+    # merge_beats(mb1, mb2) 迁移伏笔 → delete_beat("mb1") 成功
+    _seed_beats(api)
+    pid = api.register_foreshadow("怀表", planted_at="mb1")
+    api.confirm(pid)
+    fid = api._conn.execute(
+        "SELECT id FROM nodes WHERE name='怀表'").fetchone()["id"]
+    api.merge_beats("mb1", "mb2")
+    seq = api.delete_beat("mb1", reason="拍合并后清理空源拍")
+    # 恰一条 beat_deleted；reason 透传入载荷
+    rows = api._conn.execute(
+        "SELECT seq, payload FROM events WHERE kind='beat_deleted'").fetchall()
+    assert len(rows) == 1 and rows[0]["seq"] == seq
+    assert json.loads(rows[0]["payload"]) == {
+        "beat_id": "mb1", "reason": "拍合并后清理空源拍"}
+    # mb1 失效、story_order 清 NULL；同 scene 剩余拍派生序重算连续
+    assert api.get_node("mb1") is None
+    assert api.get_node("mb1", active_only=False)["active"] == 0
+    so = {r["id"]: r["story_order"] for r in api._conn.execute(
+        "SELECT id, story_order FROM nodes WHERE id IN ('mb1','mb2','mb3')")}
+    assert so["mb1"] is None
+    assert (so["mb2"], so["mb3"]) == (0, 1)
+    # 伏笔引用不受删除影响：仍指向承接拍 mb2
+    p = json.loads(api.get_node(fid, active_only=False)["props"])
+    assert p["foreshadow"]["planted_at"] == "mb2"
+
+
+def test_delete_beat_validates(api):  # 校验面
+    _seed_beat(api)
+    with db.transaction(api._conn):
+        events.append_event(api._conn, "proposal_confirmed", {
+            "artifact_type": "t", "facts": [
+                {"fact": "node", "id": "chA", "types": ["Chapter"],
+                 "name": "一章", "props": {"address": {"volume": 1, "chapter": 1,
+                                                       "scene": 0, "beat": 0}}}]})
+    projector.apply(api._conn)
+    n_events = api._conn.execute(
+        "SELECT COUNT(*) FROM events").fetchone()[0]
+    with pytest.raises(ValueError, match="不存在"):
+        api.delete_beat("nope")
+    with pytest.raises(ValueError, match="MicroBeat"):
+        api.delete_beat("chA")
+    # 校验拒绝不落事件
+    assert api._conn.execute(
+        "SELECT COUNT(*) FROM events").fetchone()[0] == n_events
+
+
 def test_merge_beats_validates(api):  # D6 校验面
     _seed_beat(api)
     with db.transaction(api._conn):
