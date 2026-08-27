@@ -17,12 +17,12 @@
 | `proposal/test_proposal.py` | `proposal/queue.py`（提案状态机） | TC-PR-01~07、TC-EV-07/08 |
 | `api/test_api.py` | `api.py`（门面端到端） | 冒烟：init→create→confirm→query→rebuild |
 | `consistency/`（test_engine / test_rules_* / test_seal / test_wiring / test_deathbeat / test_retcon / test_foreshadow） | `consistency/`（级联引擎/封卷/retcon/伏笔注册） | TC-CC-01~08、TC-WB-08、TC-ON-10 后半、TC-ON-16、TC-ON-17、TC-PR-02 retcon 面 |
-| `shell/`（test_project / test_mcp_server / test_cli / test_lease_integration / test_web_server） | 壳包 `snowel`（project.py/cli.py/mcp_server.py/web_server.py） | TC-SH-01/02/04/05/06、TC-SH-03 子集、TC-SH-07（status/backup/export）、TC-SH-08 面（test_web_server：租约/写守卫/写 API/聊天约束/端到端） |
+| `shell/`（test_project / test_mcp_server / test_cli / test_lease_integration / test_web_server） | 壳包 `snowel`（project.py/cli.py/mcp_server.py/web_server.py） | TC-SH-01/02/04/05/06、TC-SH-03 子集、TC-SH-07（status/backup/export）、TC-SH-08 面（test_web_server：租约/写守卫/写 API/聊天约束/端到端）、L25 open_project 接线补锚 |
 | `llm/`（test_backend / test_embed / test_chat） | `llm/`（backend 协议/litellm 适配、embed provider 接口、聊天代理 JSON 指令循环） | TC-RT-05（小模型路由面）、W1 聊天代理（§7.1） |
 | `web/`（vitest：App / sse / components/*.test.tsx） | Web 前端（React 三栏界面；vitest + @testing-library/react，vi.mock 数据层不发真实请求） | TC-SH-08 组件锚（浏览器级 E2E 豁免 W3） |
 | `retrieval/test_context.py` | `retrieval/`（compose_context/审计/hybrid） | TC-RT-01/02/03、TC-ON-02（FTS 面） |
 | `writeback/`（test_mirror / test_confirm_prose / test_extract / test_hook / test_active_and_deviation / test_review） | `writeback/`（镜像对账/确认即写/抽取分级/hook/active+偏离/auto 否决） | TC-WB-01~08、TC-PR-10、TC-ON-05/06、TC-FL-05 |
-| `flow/`（test_generate / test_snowflake / test_state / test_revision / test_volume / test_inspiration） | `flow/`（生成环路由/小雪花展开/流程状态/统一 revision/卷级重放/灵感层） | TC-FL-01~04/06、TC-PR-02/08/09、TC-RT-04、TC-ON-12、ON-14 补锚 |
+| `flow/`（test_generate / test_snowflake / test_state / test_revision / test_volume / test_inspiration） | `flow/`（生成环路由/小雪花展开/流程状态/统一 revision/卷级重放/灵感层） | TC-FL-01~04/06、TC-PR-02/08/09、TC-RT-04、TC-ON-12、ON-14 补锚、L25 恢复补锚 |
 
 ## 2. 运行
 

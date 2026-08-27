@@ -17,6 +17,26 @@ def _default_llm(conn):
     from .llm.ports import get_backend
     return get_backend(conn)
 
+
+def _register_derived_edges(conn, pairs) -> None:
+    """DERIVED_FROM 补边共享实现（L25）：单事务一条 derived_from_registered
+    携带全部 (src, dst) 对，随投影物化、重建可重放。
+
+    TC-ON-12/§4.7：灵感提炼物建边（src=产物节点，dst=灵感节点）——同
+    beat_merged/volume_sealed 模式：域操作自带事件 kind。confirm 与崩溃恢复
+    共用此实现；幂等性（不补已存在的边）由调用方保证。
+    """
+    if not pairs:
+        return
+    with db.transaction(conn):
+        events.append_event(
+            conn, "derived_from_registered",
+            {"facts": [{"fact": "edge", "id": str(uuid.uuid4()),
+                        "src": src, "dst": dst,
+                        "kind": "DERIVED_FROM", "props": {}}
+                       for src, dst in pairs]})
+        projector.apply(conn)
+
 class SnowelAPI:
     def __init__(self, conn, root: Path | None = None):
         self._conn = conn
@@ -200,20 +220,13 @@ class SnowelAPI:
             pre_violations = wiring.analyze(self._conn, facts, "full")
         seq = self.proposals.confirm(proposal_id, exclude=exclude)
         # TC-ON-12/§4.7：灵感提炼物确认后建 DERIVED_FROM 边（src=产物节点，
-        # dst=灵感节点）——独立事件随投影物化，重建可重放
-        # （同 beat_merged/volume_sealed 模式：域操作自带事件 kind）
+        # dst=灵感节点）——补边实现见 _register_derived_edges（L25 与恢复共用）
         if payload.get("derive_from"):
             product_ids = [f["id"] for f in facts if f.get("fact") == "node"]
-            if product_ids:
-                with db.transaction(self._conn):
-                    events.append_event(
-                        self._conn, "derived_from_registered",
-                        {"facts": [{"fact": "edge", "id": str(uuid.uuid4()),
-                                    "src": src, "dst": dst,
-                                    "kind": "DERIVED_FROM", "props": {}}
-                                   for src in product_ids
-                                   for dst in payload["derive_from"]]})
-                    projector.apply(self._conn)
+            _register_derived_edges(
+                self._conn,
+                [(src, dst) for src in product_ids
+                 for dst in payload["derive_from"]])
         if p["kind"] == "prose":
             from .writeback import mirror
             mirror.write_prose(self._conn, self._root,
@@ -238,6 +251,45 @@ class SnowelAPI:
             self._last_cascade = wiring.finalize(
                 self._conn, pre_violations, seq, "full")
         return seq
+
+    def recover_derived_from(self) -> int:
+        """两阶段崩溃恢复（L25/addendum §2.2）：补齐 confirm 崩溃窗口丢失的边。
+
+        confirm 先物化产物（proposal_confirmed 事务）、后补 DERIVED_FROM 边
+        （derived_from_registered 事务），两事务间崩溃会留下"产物已物化、
+        边缺失"的缺口。此处扫描已确认提案补录：LIKE 粗筛 → json 解析精筛 →
+        候选 (产物 id, 灵感 id) 仅在两端节点均存在且边缺失时补——exclude 剔除
+        的事实未物化、自然跳过。单条事件携带全部缺边，幂等；无缺口返回 0，
+        有补录返回补录事件数（1）。
+        """
+        conn = self._conn
+        rows = conn.execute(
+            "SELECT payload FROM proposals "
+            "WHERE status='confirmed' AND payload LIKE ?",
+            ('%"derive_from"%',)).fetchall()
+        missing = []
+        for r in rows:
+            payload = json.loads(r["payload"])
+            dsts = payload.get("derive_from")
+            if not dsts:  # 粗筛可被草稿文本误中，json 精筛为准
+                continue
+            srcs = [f["id"] for f in payload.get("facts", [])
+                    if f.get("fact") == "node"]
+            for src in srcs:
+                node = conn.execute(
+                    "SELECT 1 FROM nodes WHERE id=?", (src,)).fetchone()
+                if node is None:  # R4：两端节点均存在才补（src 缺失整组跳过）
+                    continue
+                for dst in dsts:
+                    dst_node = conn.execute(
+                        "SELECT 1 FROM nodes WHERE id=?", (dst,)).fetchone()
+                    edge = conn.execute(
+                        "SELECT 1 FROM edges WHERE src=? AND dst=? "
+                        "AND kind='DERIVED_FROM'", (src, dst)).fetchone()
+                    if dst_node is not None and edge is None:
+                        missing.append((src, dst))
+        _register_derived_edges(conn, missing)
+        return 1 if missing else 0
 
     def last_cascade(self) -> dict | None:
         """最近一次 confirm 的级联结果（该次未跑级联则为 None）。

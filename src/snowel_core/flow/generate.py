@@ -67,8 +67,9 @@ def ai_generate(api, artifact_type: str, locate: dict | None = None,
     payload = {"locate": locate or {}, "draft": parsed.get("draft", ""),
                "facts": parsed.get("facts", []),
                "appeared": parsed.get("appeared", [])}
-    if derive_from:  # TC-ON-12/§4.7：提炼来源透传（confirm 时建 DERIVED_FROM 边）
-        payload["derive_from"] = list(derive_from)
+    if derive_from:  # TC-ON-12/§4.7：提炼来源透传（confirm 时建 DERIVED_FROM 边；
+        # R5 重复 id 入口去重一次——重复防御只在此处，confirm/恢复不设防）
+        payload["derive_from"] = list(dict.fromkeys(derive_from))
     if artifact_type == "prose":  # C1 确认链契约：补文件代写两键（纯增量，四键不动）
         payload["chapter_id"] = (locate or {}).get("chapter")
         payload["content"] = parsed.get("draft", "")

@@ -1,6 +1,9 @@
 # tests/flow/test_inspiration.py
-# 灵感层（TC-ON-12 / §4.7）+ ON-14 补锚
+# 灵感层（TC-ON-12 / §4.7）+ ON-14 补锚 + L25 派生补强/两阶段恢复锚
 import json
+
+import pytest
+
 from tests.conftest import FakeBackend
 from snowel_core.storage import db, events, projector
 
@@ -47,3 +50,59 @@ def test_foreshadow_ai_origin_lifecycle(api):  # ON-14 补锚
     assert api._conn.execute(
         "SELECT COUNT(*) FROM nodes WHERE name='信笺'").fetchone()[0] == 0
     assert api.proposals.get(pid2)["status"] == "rejected"
+
+
+def test_derive_from_validation_errors(api):  # §2.2 伴生测试
+    # derive_from=["nope"] → ValueError；derive_from=[mb1（MicroBeat）] → ValueError
+    _seed_beat(api)
+    with pytest.raises(ValueError, match="Inspiration"):
+        api.ai_generate("premise", derive_from=["nope"],
+                        backend=FakeBackend([_gen_resp()]))
+    with pytest.raises(ValueError, match="Inspiration"):
+        api.ai_generate("premise", derive_from=["mb1"],
+                        backend=FakeBackend([_gen_resp()]))
+
+
+def test_derive_from_duplicate_ids_dedup(api):  # R5：入口去重
+    iid = api.save_inspiration("灵感原话")
+    facts = [{"fact": "node", "id": "py1", "types": ["Premise"],
+              "name": "两路追凶", "props": {}}]
+    pid = api.ai_generate("premise", derive_from=[iid, iid],
+                          backend=FakeBackend([_gen_resp(facts=facts)]))
+    assert json.loads(api.proposals.get(pid)["payload"])["derive_from"] == [iid]
+    api.confirm(pid)
+    n = api._conn.execute(
+        "SELECT COUNT(*) FROM edges WHERE kind='DERIVED_FROM' "
+        "AND src='py1' AND dst=?", (iid,)).fetchone()[0]
+    assert n == 1  # 恰一条，无平行边
+
+
+def test_recover_derived_from_heals_window(api):  # L25 两阶段崩溃恢复
+    iid = api.save_inspiration("灵感原话")
+    facts = [{"fact": "node", "id": "py1", "types": ["Premise"],
+              "name": "两路追凶", "props": {}}]
+    pid = api.ai_generate("premise", derive_from=[iid],
+                          backend=FakeBackend([_gen_resp(facts=facts)]))
+    api.proposals.confirm(pid)  # 直调 queue.confirm 绕过 api.confirm 补边段
+    # = 天然制造两事务间崩溃窗口：产物已物化、边缺失
+    assert api.get_node("py1") is not None
+    n0 = api._conn.execute(
+        "SELECT COUNT(*) FROM edges WHERE kind='DERIVED_FROM' "
+        "AND src='py1' AND dst=?", (iid,)).fetchone()[0]
+    assert n0 == 0
+    assert api.recover_derived_from() == 1
+    n1 = api._conn.execute(
+        "SELECT COUNT(*) FROM edges WHERE kind='DERIVED_FROM' "
+        "AND src='py1' AND dst=?", (iid,)).fetchone()[0]
+    assert n1 == 1  # 边补上
+    assert api.recover_derived_from() == 0  # 再跑幂等：无缺口返回 0
+
+
+def test_recover_derived_from_noop_when_complete(api):
+    iid = api.save_inspiration("灵感原话")
+    facts = [{"fact": "node", "id": "py1", "types": ["Premise"],
+              "name": "两路追凶", "props": {}}]
+    pid = api.ai_generate("premise", derive_from=[iid],
+                          backend=FakeBackend([_gen_resp(facts=facts)]))
+    api.confirm(pid)  # 正常全流程：confirm 自带补边，无缺口
+    assert api.recover_derived_from() == 0
