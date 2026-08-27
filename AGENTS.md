@@ -12,9 +12,9 @@
 
 ## 文档与工作流状态
 
-- 需求上游：模拟推演 `docs/v1.0.0/details/sim-walkthrough-01.md`（示范小说走查，问题清单 #0–#31 + 技术决议）；需求定稿：`docs/v1.0.0/requirements.md`（C1–C12 裁决并入正文）；设计定稿：`docs/v1.0.0/design.md`（D1–D8 + E1–E5）；其余过程文档在 `docs/v1.0.0/details/`。
+- 需求上游：模拟推演 `docs/v1.0.0/details/sim-walkthrough-01.md`（示范小说走查，问题清单 #0–#31 + 技术决议）；需求定稿：`docs/v1.0.0/requirements.md`（C1–C12 裁决并入正文）；设计定稿：`docs/v1.0.0/design.md`（D1–D8 + E1–E5）；**范围增补定稿：`docs/v1.0.0/requirements-addendum.md`（2026-08-26，13 裁决 + 8 step——v1.1 移后事项全部移入 v1.0.0 + Web 指引/手册新需求，冲突处以增补为准）**；其余过程文档在 `docs/v1.0.0/details/`。
 - 工作流遵循全局 skill 链：spec-workflow（`~/.agents/skills/spec-workflow/`：simulation → requirements → design → testcases → plans）+ dev-workflow（`~/.agents/skills/dev-workflow/`：计划批准后执行、ledger 归档、收尾与 PR 规约）。
 - 黑盒测试用例：`docs/v1.0.0/testcases.md`（9 域 75 例——历史文档"66 例/10 域"口径过时；覆盖矩阵含 C1–C12/D1–D8/E1–E5）。
 - 实现计划存储于 `docs/v1.0.0/plans/`；落地顺序：core（本体+事件溯源+基础查询）→ MCP/CLI 壳 → 回写环+混合检索 → Web 三栏界面 → 验收补丁。
-- 当前阶段：**v1.0.0 四步实现计划 + 验收补丁计划全部完成并合入 dev-1.0.0**。验收补丁（2026-08-26，merge b2022bb）：75 例黑盒终核完成——70 例有测试锚 + 5 例计划内豁免（TC-EX 挂 L24 排 v1.1）；补齐 3 例真缺口（TC-ON-08 beat_merged 拍合并+伏笔迁移、TC-ON-12 灵感层 Inspiration 节点+DERIVED_FROM、TC-RT-05 低重要章节小模型路由+extract_many）+ ON-13/ON-14 补锚；L22 六小修 + L20/L21 全部关闭（后端 264/264 + 前端 74/74 + build）。下一步：§2.3 真浏览器人工走查（WCAG 对比度/1280/1920/IME/SSE 体验，用户主刀）→ 发版前 L16 发布债 → dev → main PR（需用户发话）。
+- 当前阶段：**v1.0.0 四步实现计划 + 验收补丁计划全部完成并合入 dev-1.0.0**（a4dc7b5，后端 264/264 + 前端 74/74；75 例终核：70 锚 + 5 豁免）。**范围扩容裁决已落盘**（requirements-addendum.md）：L23/L24/L25 + streamable HTTP + rewrite_query + minor 池 + L16 全部移入 v1.0.0，新增 Web tour + 手册弹窗、预制无限流扩展包 + snowel-extension skill 双落。**下一步：按 8 step 顺序拆计划执行（Step 1 core 功能债 beat_deleted/L23/TOCTOU/两阶段恢复 → Step 2 扩展包机制方案 C → Step 3 预制包+skill → Step 4 壳端暴露 → Step 5 rewrite+HTTP → Step 6 手册+tour → Step 7 终核+人工走查（用户主刀）→ Step 8 L16 发布+PR 需发话）**。
 - **跨计划遗留**：L16 Windows python.org 构建扩展加载崩 + core/壳同步发包（发版前发布债，开放）；L23 beat_deleted 事件 + 拍 active 语义（v1.1）；L24 扩展包机制 TC-EX 全域（v1.1）；L25 灵感层/拍合并壳端暴露 + merge_beats 事务内预查（TOCTOU）+ 两阶段 confirm 恢复（v1.1）；L26 chat 召回界 hybrid 默认 20 是有意上限（显式记录，非 bug）。L1–L22 已全部修复关闭。完整明细：`plans/2026-08-26-acceptance-gap/ledger.md`（5 任务 + 终审 Ruling 全录 + triage 表），历史见 `plans/2026-08-23-snowel-core/`、`plans/2026-08-24-mcp-cli-shell/`、`plans/2026-08-24-writeback-retrieval-flow/`、`plans/2026-08-25-cascade-check/` 与 `plans/2026-08-25-web-ui/` 各自的 ledger.md。
