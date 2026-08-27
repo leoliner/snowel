@@ -44,6 +44,10 @@ class SnowelAPI:
         self._root = root          # 项目根（写文件 IO 用，C1）
         self.proposals = ProposalQueue(conn)
         self._last_cascade = None  # 最近一次 confirm 的级联结果（E5 接线缓存）
+        # 本实例激活的扩展包 hooks 规则记账：pack name → rule name 清单，
+        # unmount 凭此撤销（执行-2 Ruling：实例属性随 api 生灭，跨项目
+        # 不加重进程态污染面）
+        self._active_rules: dict[str, list[str]] = {}
         # 启动重载的扩展包警告（TC-EX-05 呈现面；open/init_project 接线填充）
         self.extension_warnings: list[str] = []
 

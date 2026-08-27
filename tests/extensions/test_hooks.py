@@ -142,3 +142,43 @@ def test_rule_batch_rollback_on_partial_failure(api):
     row = api._conn.execute(
         "SELECT status FROM extensions WHERE name='wuxia'").fetchone()
     assert row["status"] == "mounted"            # 规则没了 ≠ 包挂载失败
+
+
+# ---- 执行-2 Ruling 锁定：unmount 撤销本包 hooks 规则（实例记账）----
+
+_HOOK_TRIGGER = [{"fact": "node", "id": "n1", "types": ["Character"],
+                  "name": "剑修", "props": {"combat": {"power": 5}}}]
+
+
+def test_unmount_retires_hook_rules_same_instance(api):
+    _write_pack(api._root / "extensions", hooks=HOOKS_OK)
+    api.mount_extension("wuxia")
+
+    hit = wiring.analyze(api._conn, _HOOK_TRIGGER, "full")
+    assert any(v["rule"] == "power_needs_realm" for v in hit)
+
+    api.unmount_extension("wuxia")               # 无活跃引用，正常卸载
+    assert "power_needs_realm" not in engine._RULES
+    # 同一变更不再触发该包规则（成员负断言：全量套件下他测试的残留规则
+    # 不保证清空，全集相等断言会误伤）
+    after = wiring.analyze(api._conn, _HOOK_TRIGGER, "full")
+    assert "power_needs_realm" not in {v["rule"] for v in after}
+    assert api._active_rules.get("wuxia") is None  # 账目同步清空
+
+
+def test_reloaded_instance_accounting_covers_unmount(tmp_path):
+    proj = tmp_path / "proj"
+    a = SnowelAPI.init_project(proj)
+    _write_pack(proj / "extensions", hooks=HOOKS_OK)
+    a.mount_extension("wuxia")
+    a.close()
+
+    api2 = SnowelAPI.open(proj)                  # reload 重激活 + 记账
+    hit = wiring.analyze(api2._conn, _HOOK_TRIGGER, "full")
+    assert any(v["rule"] == "power_needs_realm" for v in hit)
+
+    api2.unmount_extension("wuxia")
+    assert "power_needs_realm" not in engine._RULES
+    after = wiring.analyze(api2._conn, _HOOK_TRIGGER, "full")
+    assert "power_needs_realm" not in {v["rule"] for v in after}
+    api2.close()

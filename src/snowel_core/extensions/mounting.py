@@ -100,9 +100,10 @@ def load_hooks(dir_path: Path) -> tuple[list, list]:
     return registry.entries, []
 
 
-def _activate_hooks(pack_name: str, entries: list) -> list[str]:
+def _activate_hooks(pack_name: str, entries: list) -> tuple[list[str], list[str]]:
     """暂存条目统一提交入引擎（mount/reload 共用）。R2 包级原子：任一条
-    engine.register 失败 → 已进引擎的同包条目全部 unregister 后整体作废。"""
+    engine.register 失败 → 已进引擎的同包条目全部 unregister 后整体作废。
+    返回 (实际生效的 rule 名清单, 警告)；失败时清单为空——供实例记账。"""
     done: list[str] = []
     try:
         for name, fn, tiers in entries:
@@ -111,9 +112,9 @@ def _activate_hooks(pack_name: str, entries: list) -> list[str]:
     except Exception as e:  # noqa: BLE001  与 load 同策略：失败转警告不外溢
         for n in done:
             engine.unregister(n)
-        return [f"扩展包 {pack_name} 的 hooks 规则提交失败，已回滚本包全部规则:"
-                f" {type(e).__name__}: {e}"]
-    return []
+        return [], [f"扩展包 {pack_name} 的 hooks 规则提交失败，已回滚本包全部规则:"
+                    f" {type(e).__name__}: {e}"]
+    return done, []
 
 
 def mount(api, name: str) -> dict:
@@ -138,7 +139,11 @@ def mount(api, name: str) -> dict:
     for gname, model in models.items():
         groups.register(model, gname, version=group_version)
     entries, hook_warns = load_hooks(manifest.dir_path)
-    hook_warns += _activate_hooks(manifest.name, entries)
+    active, activate_warns = _activate_hooks(manifest.name, entries)
+    # 执行-2 Ruling：注册成功即实例记账（失败记空清单同义于清旧账），
+    # unmount 凭此撤销
+    api._active_rules[manifest.name] = active
+    hook_warns += activate_warns
     # 本轮 discover 重扫了双位置全部包：建议性跳过字段警告一并随响应呈现
     return {"warnings": discovery.drain_warnings() + hook_warns}
 
@@ -178,6 +183,10 @@ def unmount(api, name: str) -> int:
         projector.apply(conn)
     for g in group_names:
         groups.unregister(g)
+    # 执行-2 Ruling：凭实例记账撤销本包 hooks 规则（reload 未激活的孤儿/
+    # digest 异包账目本就为空，天然 no-op）；pop 即清账
+    for r in api._active_rules.pop(name, []):
+        engine.unregister(r)
     return seq
 
 
@@ -250,7 +259,9 @@ def reload(api) -> list[str]:
                 groups.register(model, gname,
                                 version=int(manifest.schema_digest[:8], 16))
             entries, hook_warns = load_hooks(manifest.dir_path)
-            warns.extend(_activate_hooks(row["name"], entries))
+            active, activate_warns = _activate_hooks(row["name"], entries)
+            api._active_rules[row["name"]] = active  # 执行-2 Ruling：同 mount
+            warns.extend(activate_warns)
             warns.extend(hook_warns)
         warns.extend(discovery.drain_warnings())
     except Exception as e:  # noqa: BLE001  R3：重载失败只降级为警告
