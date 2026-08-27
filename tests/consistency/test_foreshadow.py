@@ -179,7 +179,63 @@ def test_merge_beats_validates(api):  # D6 校验面
     projector.apply(api._conn)
     with pytest.raises(ValueError, match="不能相同"):
         api.merge_beats("mb1", "mb1")
-    with pytest.raises(ValueError, match="不存在"):
+    with pytest.raises(ValueError, match="不存在或已失效"):
         api.merge_beats("nope", "mb1")
     with pytest.raises(ValueError, match="MicroBeat"):
         api.merge_beats("chA", "mb1")
+
+
+def test_merge_rejects_inactive_source(api):  # L23：重复合并自然拒绝
+    # merge(mb1→mb2) 成功后 merge(mb1→mb3) → ValueError（mb1 已失效）
+    _seed_beats(api)
+    assert api.merge_beats("mb1", "mb2") > 0
+    n_events = api._conn.execute(
+        "SELECT COUNT(*) FROM events").fetchone()[0]
+    with pytest.raises(ValueError, match="不存在或已失效"):
+        api.merge_beats("mb1", "mb3")
+    # 校验拒绝不落事件
+    assert api._conn.execute(
+        "SELECT COUNT(*) FROM events").fetchone()[0] == n_events
+
+
+def test_merge_rejects_inactive_target(api):  # L23：两端任一失效即拒
+    # 目标拍先被合并失效 → merge(mb3→mb2) → ValueError
+    _seed_beats(api)
+    api.merge_beats("mb2", "mb1")  # mb2 作为源拍被合并失效
+    n_events = api._conn.execute(
+        "SELECT COUNT(*) FROM events").fetchone()[0]
+    with pytest.raises(ValueError, match="不存在或已失效"):
+        api.merge_beats("mb3", "mb2")
+    # 校验拒绝不落事件
+    assert api._conn.execute(
+        "SELECT COUNT(*) FROM events").fetchone()[0] == n_events
+
+
+def test_merge_migrates_valid_until(api):  # R2（addendum §2.2）
+    # 边 props.valid_until_beat=mb1（seed 时 edge fact 带 valid_until_beat）
+    _seed_beats(api)
+    with db.transaction(api._conn):
+        events.append_event(api._conn, "proposal_confirmed", {
+            "artifact_type": "t", "facts": [
+                {"fact": "edge", "id": "eVU", "src": "mb1", "dst": "mb3",
+                 "kind": "FOLLOWS", "props": {},
+                 "valid_from_beat": "mb1",
+                 "valid_until_beat": "mb1"}]})
+    projector.apply(api._conn)
+    api.merge_beats("mb1", "mb2")
+    # 载荷 moved_valid_until 含该边 old/new（自含迁移清单，同 moved_foreshadows 模式）
+    payload = json.loads(api._conn.execute(
+        "SELECT payload FROM events WHERE kind='beat_merged'"
+    ).fetchone()["payload"])
+    assert payload["moved_valid_until"] == [
+        {"edge_id": "eVU", "old": "mb1", "new": "mb2"}]
+    # 边 props.valid_until_beat 已迁移至承接拍
+    p = json.loads(api._conn.execute(
+        "SELECT props FROM edges WHERE id='eVU'").fetchone()["props"])
+    assert p["valid_until_beat"] == "mb2"
+    # 物化 valid_until == 承接拍的 story_order（apply 尾部 recompute 自动重算）
+    vu = api._conn.execute(
+        "SELECT valid_until FROM edges WHERE id='eVU'").fetchone()["valid_until"]
+    so_mb2 = api._conn.execute(
+        "SELECT story_order FROM nodes WHERE id='mb2'").fetchone()["story_order"]
+    assert vu == so_mb2

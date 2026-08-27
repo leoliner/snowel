@@ -378,35 +378,46 @@ class SnowelAPI:
         return foreshadow.register(self, name, planted_at, origin,
                                    payoff_beat, note)
 
-    # 拍合并（D6/TC-ON-08）：校验 → 单事件 beat_merged（R1）→ 物化
+    # 拍合并（D6/TC-ON-08）：校验 → 单事件 beat_merged（R1/R2）→ 物化
     def merge_beats(self, source_beat_id: str, target_beat_id: str) -> int:
-        """合并两拍：源拍失效，其伏笔引用迁移到目标拍，返回事件 seq。
+        """合并两拍：源拍失效，其伏笔引用与边有效期迁移到目标拍，返回事件 seq。
 
-        校验两节点存在、均含 MicroBeat 类型、id 不同；预查
-        props.foreshadow.planted_at == source 的 Foreshadow 节点，把迁移
-        清单（old/new）先算后写进事件载荷——投影器严格按载荷执行。
+        校验两节点存在且活跃、均含 MicroBeat 类型、id 不同；事务内预查
+        props.foreshadow.planted_at == source 的 Foreshadow 节点与
+        props.valid_until_beat == source 的边，把迁移清单（old/new）先算后写
+        进事件载荷——投影器严格按载荷执行。
         """
         conn = self._conn
         if source_beat_id == target_beat_id:
             raise ValueError(f"源拍与目标拍不能相同: {source_beat_id}")
+        # L23：两端任一已失效即拒（重复合并同一源拍自然拒绝，无新错误分支）
         for nid in (source_beat_id, target_beat_id):
             row = conn.execute(
-                "SELECT types FROM nodes WHERE id=?", (nid,)).fetchone()
+                "SELECT types FROM nodes WHERE id=? AND active=1",
+                (nid,)).fetchone()
             if row is None:
-                raise ValueError(f"拍节点不存在: {nid}")
+                raise ValueError(f"拍节点不存在或已失效: {nid}")
             if "MicroBeat" not in json.loads(row["types"]):
                 raise ValueError(f"合并两端必须是 MicroBeat 节点: {nid}")
-        moved = [{"foreshadow_id": r["id"], "old": source_beat_id,
-                  "new": target_beat_id} for r in conn.execute(
-            """SELECT id FROM nodes
-               WHERE types LIKE '%"Foreshadow"%'
-                 AND json_extract(props, '$.foreshadow.planted_at') = ?""",
-            (source_beat_id,))]
         with db.transaction(conn):
+            # 预查全部在事务内、append_event 之前（TOCTOU：预查与写入同锁窗口）
+            moved = [{"foreshadow_id": r["id"], "old": source_beat_id,
+                      "new": target_beat_id} for r in conn.execute(
+                """SELECT id FROM nodes
+                   WHERE types LIKE '%"Foreshadow"%'
+                     AND json_extract(props, '$.foreshadow.planted_at') = ?""",
+                (source_beat_id,))]
+            moved_valid_until = [
+                {"edge_id": r["id"], "old": source_beat_id,
+                 "new": target_beat_id} for r in conn.execute(
+                """SELECT id FROM edges
+                   WHERE json_extract(props, '$.valid_until_beat') = ?""",
+                (source_beat_id,))]
             seq = events.append_event(conn, "beat_merged", {
                 "source_beat_id": source_beat_id,
                 "target_beat_id": target_beat_id,
-                "moved_foreshadows": moved})
+                "moved_foreshadows": moved,
+                "moved_valid_until": moved_valid_until})
             projector.apply(conn)
         return seq
 
