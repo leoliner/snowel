@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .proposal.queue import ProposalQueue
+from .extensions import mounting
 from .storage import db, events, lease, projector, queries, vec
 from .storage.projector import rebuild as _rebuild
 
@@ -43,12 +44,20 @@ class SnowelAPI:
         self._root = root          # 项目根（写文件 IO 用，C1）
         self.proposals = ProposalQueue(conn)
         self._last_cascade = None  # 最近一次 confirm 的级联结果（E5 接线缓存）
+        # 本实例激活的扩展包 hooks 规则记账：pack name → rule name 清单，
+        # unmount 凭此撤销（执行-2 Ruling：实例属性随 api 生灭，跨项目
+        # 不加重进程态污染面）
+        self._active_rules: dict[str, list[str]] = {}
+        # 启动重载的扩展包警告（TC-EX-05 呈现面；open/init_project 接线填充）
+        self.extension_warnings: list[str] = []
 
     @classmethod
     def init_project(cls, path) -> "SnowelAPI":
         p = Path(path); p.mkdir(parents=True, exist_ok=True)
         conn = db.connect(p / "snowel.db"); db.migrate(conn); vec.ensure(conn)
-        return cls(conn, root=p)
+        api = cls(conn, root=p)
+        api.extension_warnings = mounting.reload(api)  # R3：启动重载扩展组
+        return api
 
     @classmethod
     def open(cls, path) -> "SnowelAPI":
@@ -58,7 +67,9 @@ class SnowelAPI:
         conn = db.connect(db_path)
         db.migrate(conn)  # 旧库补新表（schema 全 IF NOT EXISTS，幂等）；apply 尾部 fts.refresh 依赖新表
         vec.ensure(conn)
-        return cls(conn, root=Path(path))
+        api = cls(conn, root=Path(path))
+        api.extension_warnings = mounting.reload(api)  # R3：启动重载扩展组
+        return api
 
     def close(self):
         self._conn.close()
@@ -506,6 +517,25 @@ class SnowelAPI:
             seq = events.append_event(conn, "beat_deleted", payload)
             projector.apply(conn)
         return seq
+
+    # 扩展包管理（addendum §3.1）：门面转发 mounting 模块（领域编排留 core）
+    def mount_extension(self, name: str) -> dict:
+        """挂载扩展包（R5）：返回 {"warnings": [...]}——建议性跳过字段警告
+        与 hooks 警告（T2 阶段恒空）。"""
+        return mounting.mount(self, name)
+
+    def unmount_extension(self, name: str) -> int:
+        """卸载扩展包（TC-EX-03）：活跃引用拦截在事务前；返回事件 seq。"""
+        return mounting.unmount(self, name)
+
+    def list_extensions(self) -> list[dict]:
+        """扩展包清单：发现全集 × 状态表 join 的只读数据面（CLI ext list 用）。"""
+        return mounting.list_extensions(self)
+
+    def extensions_status(self) -> list[dict]:
+        """挂载明细 + 健康标注（CLI ext status 用）：healthy/note 标注
+        孤儿与 schema 升级未跟随两类异常，字段薄转发 mounting。"""
+        return mounting.extensions_status(self)
 
     # 低重要标记（R4/§6.3，TC-RT-05）：作者显式操作——单事件 + 投影，不走提案
     def set_chapter_importance(self, chapter_id: str, importance: str) -> int:

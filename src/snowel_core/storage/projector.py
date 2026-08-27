@@ -192,6 +192,33 @@ def _chapter_importance_set(tx, payload: dict, seq: int):
 
 HANDLERS["chapter_importance_set"] = _chapter_importance_set
 
+def _event_ts(tx, seq: int) -> str:
+    # updated_at 溯源事件时间戳：rebuild 重放时物化值不漂移
+    return tx.execute("SELECT ts FROM events WHERE seq=?", (seq,)).fetchone()["ts"]
+
+def _extension_mounted(tx, payload: dict, seq: int):
+    tx.execute(
+        """INSERT INTO extensions(name, status, version, source_path,
+                                  schema_digest, updated_at)
+           VALUES(?, 'mounted', ?, ?, ?, ?)
+           ON CONFLICT(name) DO UPDATE SET
+             status='mounted', version=excluded.version,
+             source_path=excluded.source_path,
+             schema_digest=excluded.schema_digest, updated_at=excluded.updated_at""",
+        (payload["name"], payload["version"], payload["source_path"],
+         payload["schema_digest"], _event_ts(tx, seq)))
+
+def _extension_unmounted(tx, payload: dict, seq: int):
+    # 卸载只翻 status（updated_at 溯源）；version/source_path/digest 保留终值。
+    # 正常流程行必存在（api 层挡未挂载名）；重放安全：无行静默 no-op
+    tx.execute("UPDATE extensions SET status='unmounted', updated_at=? WHERE name=?",
+               (_event_ts(tx, seq), payload["name"]))
+
+HANDLERS.update({
+    "extension_mounted": _extension_mounted,
+    "extension_unmounted": _extension_unmounted,
+})
+
 def _checkpoint(conn) -> int:
     row = conn.execute("SELECT seq FROM checkpoint WHERE id=1").fetchone()
     return row["seq"] if row else 0
@@ -201,7 +228,7 @@ def rebuild(conn: sqlite3.Connection) -> None:
     from .db import transaction
     with transaction(conn):
         for t in ("alias", "edges", "nodes", "tracks", "chapter_prose",
-                  "sealed_volumes", "checkpoint"):
+                  "sealed_volumes", "extensions", "checkpoint"):
             conn.execute(f"DELETE FROM {t}")
         apply(conn)
 

@@ -11,6 +11,9 @@ _registered: dict[str, tuple[type[BaseModel], int]] = {}
 def register(schema: type[BaseModel], name: str, version: int) -> None:
     _registered[name] = (schema, version)
 
+def unregister(name: str) -> None:
+    _registered.pop(name, None)
+
 def validate(group_name: str, data: dict):
     if group_name not in _registered:
         return "unmanaged", None

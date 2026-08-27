@@ -6,6 +6,10 @@ import json
 import time
 
 import pytest
+
+# core-only 环境（未装 shell 包、fastapi 缺席）→ 收集期整文件 skipped 而非 error
+pytest.importorskip("snowel.web_server")
+
 from httpx import ASGITransport, AsyncClient
 
 from snowel_core.api import SnowelAPI

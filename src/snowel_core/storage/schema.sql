@@ -79,6 +79,17 @@ CREATE TABLE IF NOT EXISTS prose_paragraph(
   text       TEXT NOT NULL,
   PRIMARY KEY(chapter_id, para_idx)
 );
+CREATE TABLE IF NOT EXISTS extensions(
+  -- 扩展包挂载状态投影（addendum §3.1）：name 主键 upsert last-write-wins
+  -- （re-mount 覆盖）；version 列存包声明 semver 字符串（SQLite 动态类型按
+  -- 文本落盘），真实升级判据是 schema_digest 而非 version
+  name          TEXT PRIMARY KEY,
+  status        TEXT NOT NULL,
+  version       TEXT NOT NULL,
+  source_path   TEXT NOT NULL,
+  schema_digest TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS retrieval_audit(
   id       INTEGER PRIMARY KEY AUTOINCREMENT,
   ts       TEXT NOT NULL,
