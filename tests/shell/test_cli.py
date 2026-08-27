@@ -1,5 +1,7 @@
 # tests/shell/test_cli.py
+import json
 import shutil
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -150,3 +152,87 @@ def test_status_via_env_var(tmp_path, monkeypatch):
     monkeypatch.chdir(elsewhere)
     res = runner.invoke(app, ["status"])
     assert res.exit_code == 0
+
+
+# ---- ext 子命令组（TC-EX-01/03 出口面；hooks 引擎行为在 tests/extensions/）----
+
+EXT_SCHEMA = {
+    "name": "wuxia",
+    "version": "0.1.0",
+    "groups": {
+        "combat": {
+            "type": "object",
+            "properties": {"realm": {"type": "string"}},
+        }
+    },
+}
+
+
+def write_ext(base, payload=EXT_SCHEMA):
+    d = base / payload["name"]
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "schema.json").write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return d
+
+
+def test_ext_list_shows_project_override_and_mount_state(
+        tmp_path, monkeypatch):                                 # TC-EX-01 出口可见
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    gdir = home / ".snowel" / "extensions"
+    write_ext(gdir, dict(EXT_SCHEMA, version="0.9.0"))   # 全局同名旧版
+    write_ext(gdir, dict(EXT_SCHEMA, name="xianxia", version="2.0.0"))
+    proj = tmp_path / "proj"
+    SnowelAPI.init_project(proj)
+    write_ext(proj / "extensions")                       # 项目内覆盖版 0.1.0
+    runner.invoke(app, ["ext", "mount", "wuxia", "-p", str(proj)])
+
+    res = runner.invoke(app, ["ext", "list", "-p", str(proj)])
+    assert res.exit_code == 0
+    wuxia = next(l for l in res.output.splitlines() if l.startswith("wuxia"))
+    assert "项目" in wuxia and "0.1.0" in wuxia           # 项目覆盖全局生效
+    assert "已挂载" in wuxia and "0.9.0" not in wuxia     # 挂载态可见，旧版不出现
+    xianxia = next(l for l in res.output.splitlines()
+                   if l.startswith("xianxia"))
+    assert "全局" in xianxia and "未挂载" in xianxia       # 双位置发现全集
+
+
+def test_ext_mount_unmount_lifecycle(tmp_path):
+    proj = tmp_path / "proj"
+    SnowelAPI.init_project(proj)
+    write_ext(proj / "extensions")
+
+    ghost = runner.invoke(app, ["ext", "mount", "ghost", "-p", str(proj)])
+    assert ghost.exit_code == 1 and "未找到" in ghost.output
+
+    res = runner.invoke(app, ["ext", "mount", "wuxia", "-p", str(proj)])
+    assert res.exit_code == 0 and "已挂载" in res.output
+    st = runner.invoke(app, ["ext", "status", "-p", str(proj)])
+    assert st.exit_code == 0
+    assert "wuxia" in st.output and "正常" in st.output
+
+    res2 = runner.invoke(app, ["ext", "unmount", "wuxia", "-p", str(proj)])
+    assert res2.exit_code == 0 and "已卸载" in res2.output
+    again = runner.invoke(app, ["ext", "unmount", "wuxia", "-p", str(proj)])
+    assert again.exit_code == 1 and "未挂载" in again.output
+
+
+def test_ext_unmount_refusal_shows_reason(tmp_path):        # TC-EX-03 呈现面
+    proj = tmp_path / "proj"
+    SnowelAPI.init_project(proj)
+    write_ext(proj / "extensions")
+    api = SnowelAPI.open(proj)
+    api.mount_extension("wuxia")
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "n-ref", "types": ["Character"], "name": "剑修",
+         "props": {"combat": {"realm": "金丹"}}}]})
+    api.confirm(pid)
+    api.close()
+
+    res = runner.invoke(app, ["ext", "unmount", "wuxia", "-p", str(proj)])
+    assert res.exit_code == 1
+    assert "n-ref" in res.output and "引用" in res.output   # 拒绝原因完整呈现

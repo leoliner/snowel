@@ -37,6 +37,19 @@ def _open_or_exit(project: Optional[Path] = None, want_write: bool = False):
         raise typer.Exit(code=1) from e
 
 
+# 扩展包管理出口（addendum §3.1 裁决 6：唯一管理入口走 CLI，无 Web/MCP 面）
+ext_app = typer.Typer(help="扩展包管理：list / mount / unmount / status")
+app.add_typer(ext_app, name="ext")
+
+_ORIGIN = {"project": "项目", "global": "全局", None: "孤儿"}
+
+
+def _echo_warnings(warnings) -> None:
+    """非致命提示走 Yellow 沿旧例；致命错误才 RED + Exit(1)。"""
+    for w in warnings:
+        typer.secho(f"警告：{w}", fg=typer.colors.YELLOW)
+
+
 @app.callback()
 def _callback(project: ProjectOpt = None) -> None:
     global _project
@@ -162,6 +175,77 @@ def web(project: ProjectOpt = None,
             err=True, fg=typer.colors.RED)
         raise typer.Exit(code=1)
     uvicorn.run(create_app(p), host=host, port=port)
+
+
+@ext_app.command("list")
+def ext_list(project: ProjectOpt = None) -> None:
+    """列出扩展包：发现全集 × 挂载态 × 项目覆盖标记（TC-EX-01 出口）。"""
+    ctx = _open_or_exit(project, want_write=False)
+    try:
+        for e in ctx.api.list_extensions():
+            state = "已挂载" if e["mounted"] else "未挂载"
+            stale = ("（schema 与挂载时不一致，重新挂载后生效）"
+                     if e["mounted"] and not e["digest_matches"] else "")
+            typer.echo(
+                f"{e['name']}  {e['version']}  "
+                f"[{_ORIGIN[e['scope']]}] {state}{stale}")
+    finally:
+        ctx.close()
+
+
+@ext_app.command("mount")
+def ext_mount(project: ProjectOpt = None,
+              name: Annotated[str, typer.Argument(
+                  help="扩展包名（schema.json 的 name 字段）")] = ...) -> None:
+    """挂载扩展包：属性组/hook 规则即刻可用（事件化，rebuild 可重放）。"""
+    ctx = _open_or_exit(project, want_write=True)
+    try:
+        try:
+            res = ctx.api.mount_extension(name)
+        except ValueError as e:
+            typer.secho(str(e), err=True, fg=typer.colors.RED)
+            raise typer.Exit(code=1) from e
+        _echo_warnings(res.get("warnings", []))
+        typer.echo(f"已挂载扩展包：{name}")
+    finally:
+        ctx.close()
+
+
+@ext_app.command("unmount")
+def ext_unmount(project: ProjectOpt = None,
+                name: Annotated[str, typer.Argument(
+                    help="扩展包名")] = ...) -> None:
+    """卸载扩展包：活跃节点仍引用属性组时拒绝并呈现原因。"""
+    ctx = _open_or_exit(project, want_write=True)
+    try:
+        try:
+            ctx.api.unmount_extension(name)
+        except ValueError as e:
+            typer.secho(str(e), err=True, fg=typer.colors.RED)
+            raise typer.Exit(code=1) from e
+        typer.echo(f"已卸载扩展包：{name}（已有数据保留，组字段降级 unmanaged）")
+    finally:
+        ctx.close()
+
+
+@ext_app.command("status")
+def ext_status(project: ProjectOpt = None) -> None:
+    """扩展包健康明细：逐包正常/异常标注 + 启动重载警告回顾。"""
+    ctx = _open_or_exit(project, want_write=False)
+    try:
+        rows = ctx.api.extensions_status()
+        if not rows:
+            typer.echo("未发现任何扩展包")
+        for r in rows:
+            health = "正常" if r["healthy"] else "异常"
+            mounted = "" if r["mounted"] else "（未挂载）"
+            typer.echo(f"{r['name']}  {r['version']}  "
+                       f"[{_ORIGIN[r['scope']]}] {health}{mounted}")
+            if r["note"]:
+                typer.echo(f"    · {r['note']}")
+        _echo_warnings(ctx.api.extension_warnings)
+    finally:
+        ctx.close()
 
 
 def main() -> None:

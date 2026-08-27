@@ -528,6 +528,11 @@ class SnowelAPI:
         """扩展包清单：发现全集 × 状态表 join 的只读数据面（CLI ext list 用）。"""
         return mounting.list_extensions(self)
 
+    def extensions_status(self) -> list[dict]:
+        """挂载明细 + 健康标注（CLI ext status 用）：healthy/note 标注
+        孤儿与 schema 升级未跟随两类异常，字段薄转发 mounting。"""
+        return mounting.extensions_status(self)
+
     # 低重要标记（R4/§6.3，TC-RT-05）：作者显式操作——单事件 + 投影，不走提案
     def set_chapter_importance(self, chapter_id: str, importance: str) -> int:
         """标记章重要度：importance ∈ {"low", "normal"} → chapter_importance_set 事件。
