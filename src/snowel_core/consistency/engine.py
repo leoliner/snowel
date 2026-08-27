@@ -21,6 +21,13 @@ def register(name: str, fn: Callable, tiers: tuple[str, ...] = ("full",)) -> Non
         TIERS[tier].add(name)
 
 
+def unregister(name: str) -> None:
+    """撤销规则（扩展包卸载/回滚用）；未注册名静默 no-op。"""
+    _RULES.pop(name, None)
+    for members in TIERS.values():
+        members.discard(name)
+
+
 def run(conn: sqlite3.Connection, changes: list[dict], tier: str) -> list[dict]:
     """按档位逐变更执行注册规则，聚合去重（同 rule+refs 只留一条）。"""
     out: list[dict] = []
