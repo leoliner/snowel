@@ -5,24 +5,28 @@ from snowel_core.storage import db
 
 # L20 测试卫生：create_app 启动的心跳线程是 daemon，且 ASGITransport 不送
 # lifespan 消息（_lifespan 的停止逻辑不触发）→ 线程+sqlite 连接随进程存活至
-# 退出（良性但拖住 tmp 项目目录清理）。这里包一层 create_app 登记线程引用，
-# 会话收尾统一停（复用生产既有 Stop Event + join，与 _lifespan 同款）。
+# 退出（良性但拖住 tmp 项目目录清理）。装了 Web 壳时包一层 create_app 登记
+# 线程引用，会话收尾统一停（复用生产既有 Stop Event + join，与 _lifespan 同
+# 款）；core-only 环境（未装 shell 包、fastapi 缺席）整块跳过，web 测试由
+# importorskip 收集期跳过，套件其余部分照常跑。
 _heartbeats: list[tuple[threading.Event, threading.Thread]] = []
 
+try:
+    _web_server_mod = __import__("snowel.web_server", fromlist=["x"])
+except ImportError:
+    _web_server_mod = None
 
-_web_server_mod = __import__("snowel.web_server", fromlist=["x"])
-_orig_create_app = _web_server_mod.create_app
+if _web_server_mod is not None:
+    _orig_create_app = _web_server_mod.create_app
 
+    def _tracked_create_app(*args, **kwargs):
+        app = _orig_create_app(*args, **kwargs)
+        if app.state._heartbeat_thread is not None:
+            _heartbeats.append((app.state._heartbeat_stop,
+                                app.state._heartbeat_thread))
+        return app
 
-def _tracked_create_app(*args, **kwargs):
-    app = _orig_create_app(*args, **kwargs)
-    if app.state._heartbeat_thread is not None:
-        _heartbeats.append((app.state._heartbeat_stop,
-                            app.state._heartbeat_thread))
-    return app
-
-
-_web_server_mod.create_app = _tracked_create_app
+    _web_server_mod.create_app = _tracked_create_app
 
 
 @pytest.fixture(scope="session", autouse=True)
