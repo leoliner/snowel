@@ -2,7 +2,7 @@
 name = "snowel-core"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2.7", "litellm", "jieba>=0.42", "sqlite-vec>=0.1.6"]
+dependencies = ["pydantic>=2.7", "litellm", "jieba>=0.42", "sqlite-vec>=0.1.6", "jsonschema>=4.18"]
 
 [project.optional-dependencies]
 embed = ["fastembed>=0.3"]
