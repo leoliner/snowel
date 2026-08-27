@@ -123,6 +123,18 @@ def test_invalid_manifest_variants_skip(tmp_path, monkey_patch_home):
     assert len(warns) == 1 and "不在映射表" in warns[0]
 
 
+def test_unportable_pattern_rejected_at_parse(tmp_path, monkey_patch_home):
+    # 前瞻是合法 ECMA 正则：check_schema 与 python re 都放行，但 pydantic
+    # 构模引擎拒编译——parse 期就该给出明确拒绝而非拖到挂载期裸炸
+    m, warns = parse_manifest(write_pack(tmp_path, "lookahead", {
+        "name": "x", "version": "0.1",
+        "groups": {"g": {"properties": {
+            "t": {"type": "string", "pattern": "(?!《》).+"}}}}}))
+    assert m is None                            # TC-EX-05 精神：视同缺失包
+    assert len(warns) == 1
+    assert "pattern" in warns[0] and "不可移植" in warns[0]
+
+
 def test_discover_no_global_dir_is_silent(tmp_path, monkey_patch_home):
     # ~/.snowel/extensions 从未创建：root=None 与给定项目根都静默为空、零警告
     assert discover(None) == []

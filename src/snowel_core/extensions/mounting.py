@@ -126,7 +126,15 @@ def mount(api, name: str) -> dict:
     if manifest is None:
         raise ValueError(
             f"未找到扩展包: {name}（项目/全局 extensions 目录下均无此包）")
-    models = build_group_models(manifest)  # 失败即中止，事件未落、无半状态
+    # R5 只豁免 hooks 规则加载，组模型构建失败不豁免：pydantic 构模可能抛
+    # 非 ValueError（如构模正则引擎拒编译前瞻 pattern 的 SchemaError），
+    # 而 CLI 只捕 ValueError——裸逃逸即 traceback 崩溃且该包永远无法经
+    # CLI 挂载，必须转清晰拒绝（此刻事件未落，无半状态）
+    try:
+        models = build_group_models(manifest)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"扩展包 {manifest.name} 属性组模型构建失败: "
+                         f"{type(e).__name__}: {e}") from e
     with db.transaction(conn):             # 事件与投影单事务原子（固定模式）
         seq = events.append_event(conn, "extension_mounted", {
             "name": manifest.name, "version": manifest.version,
@@ -207,7 +215,10 @@ def list_extensions(api) -> list[dict]:
     for name, s in sorted(state.items()):
         out.append({"name": name, "scope": None,
                     "mounted": s["status"] == "mounted",
-                    "version": s["version"], "digest_matches": False})
+                    "version": s["version"],
+                    # digest=None：磁盘包消失无从比对，是"未知"而非"不一致"
+                    # ——绝不能落 False，否则 CLI 会给孤儿套 stale 重挂文案
+                    "digest_matches": None})
     return out
 
 

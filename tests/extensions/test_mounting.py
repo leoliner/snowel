@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from snowel_core.api import SnowelAPI
-from snowel_core.extensions import discovery
+from snowel_core.extensions import discovery, mounting
 from snowel_core.ontology import groups
 from snowel_core.storage import db, events, projector
 
@@ -100,6 +100,23 @@ def test_mount_midway_does_not_touch_existing_nodes(api):  # TC-EX-02
 
     entry = next(e for e in api.list_extensions() if e["name"] == "wuxia")
     assert entry["scope"] == "project" and entry["mounted"] is True
+
+
+def test_mount_group_model_build_failure_rejected_cleanly(api, monkeypatch):
+    _mount_pack(api)
+    # 构模抛非 ValueError 异常（如 pydantic SchemaError，前瞻 pattern 场景）：
+    # mount 须转清晰 ValueError 拒绝，而非裸 traceback 漏给 CLI（CLI 只捕
+    # ValueError）；失败在事务前，事件日志零新增、无残包挂上
+    def _boom(manifest):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(mounting, "build_group_models", _boom)
+    n_before = api._conn.execute(
+        "SELECT COUNT(*) c FROM events").fetchone()["c"]
+
+    with pytest.raises(ValueError, match="属性组模型构建失败.*RuntimeError"):
+        api.mount_extension("wuxia")
+    assert api._conn.execute(
+        "SELECT COUNT(*) c FROM events").fetchone()["c"] == n_before
 
 
 def test_unmount_blocked_by_active_reference(api):  # TC-EX-03

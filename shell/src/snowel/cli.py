@@ -184,8 +184,11 @@ def ext_list(project: ProjectOpt = None) -> None:
     try:
         for e in ctx.api.list_extensions():
             state = "已挂载" if e["mounted"] else "未挂载"
-            stale = ("（schema 与挂载时不一致，重新挂载后生效）"
-                     if e["mounted"] and not e["digest_matches"] else "")
+            # 严格 is False 才算 stale：孤儿行 digest_matches=None（未知）
+            if e["mounted"] and e["digest_matches"] is False:
+                stale = "（schema 与挂载时不一致，重新挂载后生效）"
+            else:
+                stale = ""
             typer.echo(
                 f"{e['name']}  {e['version']}  "
                 f"[{_ORIGIN[e['scope']]}] {state}{stale}")

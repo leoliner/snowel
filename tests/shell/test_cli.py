@@ -3,12 +3,32 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from snowel.cli import app
 from snowel_core.api import SnowelAPI
+from snowel_core.consistency import engine
+from snowel_core.extensions import discovery
+from snowel_core.ontology import groups
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _restore_ext_registries():
+    """tests/extensions/test_hooks.py 同款差分回退：本文件的 ext 用例挂载/
+    卸载包时会写进程态共享注册表（组 + 引擎规则），teardown 回退到进场前键
+    集合；警告池一并清空。家目录隔离由 tests/conftest 会话级 fixture 统一罩。"""
+    discovery.drain_warnings()
+    known_groups = set(groups._registered)
+    known_rules = set(engine._RULES)
+    yield
+    for n in set(groups._registered) - known_groups:
+        groups.unregister(n)
+    for n in set(engine._RULES) - known_rules:
+        engine.unregister(n)
+    discovery.drain_warnings()
 
 FACTS = [{"fact": "node", "id": "n1", "types": ["Character"],
           "name": "林晚", "props": {}}]
@@ -236,3 +256,27 @@ def test_ext_unmount_refusal_shows_reason(tmp_path):        # TC-EX-03 呈现面
     res = runner.invoke(app, ["ext", "unmount", "wuxia", "-p", str(proj)])
     assert res.exit_code == 1
     assert "n-ref" in res.output and "引用" in res.output   # 拒绝原因完整呈现
+
+
+def test_orphan_row_not_marked_stale(tmp_path):             # M-2 锚
+    # 孤儿行（磁盘包已消失）：digest_matches 恒 None，不得再套
+    # "schema 不一致，重新挂载后生效" 的 stale 文案误导用户去重挂
+    proj = tmp_path / "proj"
+    SnowelAPI.init_project(proj)
+    write_ext(proj / "extensions")
+    api = SnowelAPI.open(proj)
+    api.mount_extension("wuxia")
+    api.close()
+    shutil.rmtree(proj / "extensions" / "wuxia")           # 孤儿化
+
+    res = runner.invoke(app, ["ext", "list", "-p", str(proj)])
+    assert res.exit_code == 0
+    orphan = next(l for l in res.output.splitlines()
+                  if l.startswith("wuxia"))
+    assert "[孤儿]" in orphan
+    assert "重新挂载后生效" not in res.output
+
+    st = runner.invoke(app, ["ext", "status", "-p", str(proj)])
+    assert st.exit_code == 0
+    assert "异常" in st.output                              # 健康标注如常
+    assert "重新挂载后生效" not in st.output

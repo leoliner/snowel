@@ -1,4 +1,6 @@
+import os
 import threading
+from pathlib import Path
 
 import pytest
 from snowel_core.storage import db
@@ -38,6 +40,29 @@ def _stop_heartbeat_threads():
     for _, t in _heartbeats:
         t.join(timeout=5)
     _heartbeats.clear()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_home(tmp_path_factory):
+    """会话级家目录隔离：SnowelAPI.init_project/open 尾部 reload 总会 discover
+    真实全局 ~/.snowel/extensions——本机部署过全局扩展包时会把包注册进进程态
+    注册表，翻转 writeback/consistency 等消费共享 api fixture 的测试语义
+    （CI 绿本地红的无声漂移）。HOME/USERPROFILE/Path.home 三处钉死到空目录；
+    个别用例自行的 monkey_patch_home 叠加其上无害。monkeypatch 是函数级
+    fixture，会话级只能手工存取恢复。"""
+    home = tmp_path_factory.mktemp("isolated_home")
+    saved_env = {k: os.environ.get(k) for k in ("HOME", "USERPROFILE")}
+    saved_home = Path.home
+    os.environ["HOME"] = str(home)
+    os.environ["USERPROFILE"] = str(home)
+    Path.home = staticmethod(lambda: home)  # type: ignore[method-assign]
+    yield home
+    Path.home = saved_home                  # type: ignore[method-assign]
+    for k, v in saved_env.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
 
 
 @pytest.fixture

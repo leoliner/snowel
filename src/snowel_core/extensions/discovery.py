@@ -8,9 +8,11 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
+from pydantic import StringConstraints, create_model
 
 # R1 映射表（本任务只用于识别可构组字段、收集跳过警告，不做映射产物）
 _SCALAR_TYPES = ("string", "integer", "number", "boolean")
@@ -70,6 +72,29 @@ def _skipped_fields(dir_path: Path, group_name: str, fragment: dict) -> list[str
     return out
 
 
+def _pattern_portability_error(dir_path: Path, group_name: str,
+                               fragment: dict) -> str | None:
+    """启发式预检：check_schema 只查元模式不编译 pattern，而构模期 pydantic
+    按其内置正则引擎（rust regex）编译——前瞻等 python re 也接受的 ECMA 语法
+    会拖到挂载期才炸。此处按字段级 pattern 以构模同源引擎试编译提前拒绝；
+    引擎不支持但语义合法的正则会被误杀（可移植写法由 Step 3 制作 skill 教）。"""
+    properties = fragment.get("properties")
+    if not isinstance(properties, dict):
+        return None
+    for fname, spec in properties.items():
+        if not isinstance(spec, dict) or "pattern" not in spec:
+            continue
+        try:
+            create_model("_PatternProbe",
+                         v=(Annotated[str, StringConstraints(
+                             pattern=spec["pattern"])], ...))
+        except Exception as e:  # noqa: BLE001  构模引擎拒编译一律不可移植
+            return (f"扩展包 {dir_path} 组 {group_name} 字段 {fname} 的 "
+                    f"pattern 不可移植（构模正则引擎无法编译）: "
+                    f"{type(e).__name__}: {e}")
+    return None
+
+
 def parse_manifest(dir_path: Path) -> tuple[PackManifest | None, list[str]]:
     """读 <dir>/schema.json 并按 R1 校验；任何致命问题返 (None, [警告])
     视同缺失包。"""
@@ -102,6 +127,9 @@ def parse_manifest(dir_path: Path) -> tuple[PackManifest | None, list[str]]:
         except SchemaError as e:
             return None, [
                 f"扩展包 {dir_path} 组 {group_name} 片段校验失败: {e.message}"]
+        fatal = _pattern_portability_error(dir_path, group_name, fragment)
+        if fatal is not None:
+            return None, [fatal]  # R1 片段校验失败同分支：视同缺失包
         warns.extend(_skipped_fields(dir_path, group_name, fragment))
     return PackManifest(
         name=name, version=version, dir_path=dir_path,
