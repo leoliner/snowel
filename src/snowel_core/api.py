@@ -17,6 +17,26 @@ def _default_llm(conn):
     from .llm.ports import get_backend
     return get_backend(conn)
 
+
+def _register_derived_edges(conn, pairs) -> None:
+    """DERIVED_FROM 补边共享实现（L25）：单事务一条 derived_from_registered
+    携带全部 (src, dst) 对，随投影物化、重建可重放。
+
+    TC-ON-12/§4.7：灵感提炼物建边（src=产物节点，dst=灵感节点）——同
+    beat_merged/volume_sealed 模式：域操作自带事件 kind。confirm 与崩溃恢复
+    共用此实现；幂等性（不补已存在的边）由调用方保证。
+    """
+    if not pairs:
+        return
+    with db.transaction(conn):
+        events.append_event(
+            conn, "derived_from_registered",
+            {"facts": [{"fact": "edge", "id": str(uuid.uuid4()),
+                        "src": src, "dst": dst,
+                        "kind": "DERIVED_FROM", "props": {}}
+                       for src, dst in pairs]})
+        projector.apply(conn)
+
 class SnowelAPI:
     def __init__(self, conn, root: Path | None = None):
         self._conn = conn
@@ -200,20 +220,13 @@ class SnowelAPI:
             pre_violations = wiring.analyze(self._conn, facts, "full")
         seq = self.proposals.confirm(proposal_id, exclude=exclude)
         # TC-ON-12/§4.7：灵感提炼物确认后建 DERIVED_FROM 边（src=产物节点，
-        # dst=灵感节点）——独立事件随投影物化，重建可重放
-        # （同 beat_merged/volume_sealed 模式：域操作自带事件 kind）
+        # dst=灵感节点）——补边实现见 _register_derived_edges（L25 与恢复共用）
         if payload.get("derive_from"):
             product_ids = [f["id"] for f in facts if f.get("fact") == "node"]
-            if product_ids:
-                with db.transaction(self._conn):
-                    events.append_event(
-                        self._conn, "derived_from_registered",
-                        {"facts": [{"fact": "edge", "id": str(uuid.uuid4()),
-                                    "src": src, "dst": dst,
-                                    "kind": "DERIVED_FROM", "props": {}}
-                                   for src in product_ids
-                                   for dst in payload["derive_from"]]})
-                    projector.apply(self._conn)
+            _register_derived_edges(
+                self._conn,
+                [(src, dst) for src in product_ids
+                 for dst in payload["derive_from"]])
         if p["kind"] == "prose":
             from .writeback import mirror
             mirror.write_prose(self._conn, self._root,
@@ -238,6 +251,45 @@ class SnowelAPI:
             self._last_cascade = wiring.finalize(
                 self._conn, pre_violations, seq, "full")
         return seq
+
+    def recover_derived_from(self) -> int:
+        """两阶段崩溃恢复（L25/addendum §2.2）：补齐 confirm 崩溃窗口丢失的边。
+
+        confirm 先物化产物（proposal_confirmed 事务）、后补 DERIVED_FROM 边
+        （derived_from_registered 事务），两事务间崩溃会留下"产物已物化、
+        边缺失"的缺口。此处扫描已确认提案补录：LIKE 粗筛 → json 解析精筛 →
+        候选 (产物 id, 灵感 id) 仅在两端节点均存在且边缺失时补——exclude 剔除
+        的事实未物化、自然跳过。单条事件携带全部缺边，幂等；无缺口返回 0，
+        有补录返回补录事件数（1）。
+        """
+        conn = self._conn
+        rows = conn.execute(
+            "SELECT payload FROM proposals "
+            "WHERE status='confirmed' AND payload LIKE ?",
+            ('%"derive_from"%',)).fetchall()
+        missing = []
+        for r in rows:
+            payload = json.loads(r["payload"])
+            dsts = payload.get("derive_from")
+            if not dsts:  # 粗筛可被草稿文本误中，json 精筛为准
+                continue
+            srcs = [f["id"] for f in payload.get("facts", [])
+                    if f.get("fact") == "node"]
+            for src in srcs:
+                node = conn.execute(
+                    "SELECT 1 FROM nodes WHERE id=?", (src,)).fetchone()
+                if node is None:  # R4：两端节点均存在才补（src 缺失整组跳过）
+                    continue
+                for dst in dsts:
+                    dst_node = conn.execute(
+                        "SELECT 1 FROM nodes WHERE id=?", (dst,)).fetchone()
+                    edge = conn.execute(
+                        "SELECT 1 FROM edges WHERE src=? AND dst=? "
+                        "AND kind='DERIVED_FROM'", (src, dst)).fetchone()
+                    if dst_node is not None and edge is None:
+                        missing.append((src, dst))
+        _register_derived_edges(conn, missing)
+        return 1 if missing else 0
 
     def last_cascade(self) -> dict | None:
         """最近一次 confirm 的级联结果（该次未跑级联则为 None）。
@@ -296,14 +348,16 @@ class SnowelAPI:
         """按序循环单章抽取，返回逐章结果列表。
 
         单章失败不吞：成功条目为抽取结果（含 chapter_id），失败条目为
-        {"chapter_id": ..., "error": ...}，调用方按 chapter_id 对齐。
+        {"chapter_id": ..., "error": "<异常类型名>: <消息>"}，调用方按
+        chapter_id 对齐。
         """
         results = []
         for cid in chapter_ids:
             try:
                 results.append(self.extract_and_writeback(cid, backend))
             except Exception as e:
-                results.append({"chapter_id": cid, "error": str(e)})
+                results.append({"chapter_id": cid,
+                                "error": f"{type(e).__name__}: {e}"})
         return results
 
     def deviation(self, chapter_id: str) -> dict:
@@ -378,35 +432,78 @@ class SnowelAPI:
         return foreshadow.register(self, name, planted_at, origin,
                                    payoff_beat, note)
 
-    # 拍合并（D6/TC-ON-08）：校验 → 单事件 beat_merged（R1）→ 物化
+    # 拍合并（D6/TC-ON-08）：校验 → 单事件 beat_merged（R1/R2）→ 物化
     def merge_beats(self, source_beat_id: str, target_beat_id: str) -> int:
-        """合并两拍：源拍失效，其伏笔引用迁移到目标拍，返回事件 seq。
+        """合并两拍：源拍失效，其伏笔引用与边有效期迁移到目标拍，返回事件 seq。
 
-        校验两节点存在、均含 MicroBeat 类型、id 不同；预查
-        props.foreshadow.planted_at == source 的 Foreshadow 节点，把迁移
-        清单（old/new）先算后写进事件载荷——投影器严格按载荷执行。
+        校验两节点存在且活跃、均含 MicroBeat 类型、id 不同；事务内预查
+        props.foreshadow.planted_at == source 的 Foreshadow 节点与
+        props.valid_until_beat == source 的边，把迁移清单（old/new）先算后写
+        进事件载荷——投影器严格按载荷执行。
         """
         conn = self._conn
         if source_beat_id == target_beat_id:
             raise ValueError(f"源拍与目标拍不能相同: {source_beat_id}")
+        # L23：两端任一已失效即拒（重复合并同一源拍自然拒绝，无新错误分支）
         for nid in (source_beat_id, target_beat_id):
             row = conn.execute(
-                "SELECT types FROM nodes WHERE id=?", (nid,)).fetchone()
+                "SELECT types FROM nodes WHERE id=? AND active=1",
+                (nid,)).fetchone()
             if row is None:
-                raise ValueError(f"拍节点不存在: {nid}")
+                raise ValueError(f"拍节点不存在或已失效: {nid}")
             if "MicroBeat" not in json.loads(row["types"]):
                 raise ValueError(f"合并两端必须是 MicroBeat 节点: {nid}")
-        moved = [{"foreshadow_id": r["id"], "old": source_beat_id,
-                  "new": target_beat_id} for r in conn.execute(
-            """SELECT id FROM nodes
-               WHERE types LIKE '%"Foreshadow"%'
-                 AND json_extract(props, '$.foreshadow.planted_at') = ?""",
-            (source_beat_id,))]
         with db.transaction(conn):
+            # 预查全部在事务内、append_event 之前（TOCTOU：预查与写入同锁窗口）
+            moved = [{"foreshadow_id": r["id"], "old": source_beat_id,
+                      "new": target_beat_id} for r in conn.execute(
+                """SELECT id FROM nodes
+                   WHERE types LIKE '%"Foreshadow"%'
+                     AND json_extract(props, '$.foreshadow.planted_at') = ?""",
+                (source_beat_id,))]
+            moved_valid_until = [
+                {"edge_id": r["id"], "old": source_beat_id,
+                 "new": target_beat_id} for r in conn.execute(
+                """SELECT id FROM edges
+                   WHERE json_extract(props, '$.valid_until_beat') = ?""",
+                (source_beat_id,))]
             seq = events.append_event(conn, "beat_merged", {
                 "source_beat_id": source_beat_id,
                 "target_beat_id": target_beat_id,
-                "moved_foreshadows": moved})
+                "moved_foreshadows": moved,
+                "moved_valid_until": moved_valid_until})
+            projector.apply(conn)
+        return seq
+
+    # 拍删除（addendum §2.1/TC-ON-17）：校验 → 事务内预查伏笔引用 → 单事件 beat_deleted
+    def delete_beat(self, beat_id: str, reason: str | None = None) -> int:
+        """删除拍：追加 beat_deleted 事件使该拍失效，返回事件 seq。
+
+        校验节点存在、含 MicroBeat 类型（R1：不查 active——已合并失效的拍
+        仍可显式删除）；事务内预查 props.foreshadow.planted_at 引用，
+        >0 则拒绝（严格拒绝语义）。通过则单事务追加事件并物化。
+        """
+        conn = self._conn
+        row = conn.execute(
+            "SELECT types FROM nodes WHERE id=?", (beat_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"拍节点不存在: {beat_id}")
+        if "MicroBeat" not in json.loads(row["types"]):
+            raise ValueError(f"删除对象必须是 MicroBeat 节点: {beat_id}")
+        payload = {"beat_id": beat_id}
+        if reason is not None:
+            payload["reason"] = reason
+        with db.transaction(conn):
+            refs = conn.execute(
+                """SELECT id FROM nodes
+                   WHERE types LIKE '%"Foreshadow"%'
+                     AND json_extract(props, '$.foreshadow.planted_at') = ?""",
+                (beat_id,)).fetchall()
+            if refs:  # 事务内预查：拒绝不留半事件，与追加同锁窗口无 TOCTOU
+                raise ValueError(
+                    f"该拍承载 {len(refs)} 个伏笔引用，"
+                    "先 merge_beats 到承接拍或迁移伏笔")
+            seq = events.append_event(conn, "beat_deleted", payload)
             projector.apply(conn)
         return seq
 
@@ -437,8 +534,10 @@ class SnowelAPI:
         """保存灵感原话：追加 inspiration_saved 事件（facts 含 Inspiration 节点）。
 
         作者手输属显式操作——原话全文存 props.inspiration.text 永久保留，
-        后续提炼物经 DERIVED_FROM 边指回本节点（R2）。
+        后续提炼物经 DERIVED_FROM 边指回本节点（R2）；空/纯空白文本拒绝。
         """
+        if not (text or "").strip():
+            raise ValueError("灵感文本不能为空")
         iid = str(uuid.uuid4())
         with db.transaction(self._conn):
             events.append_event(self._conn, "inspiration_saved", {
@@ -449,10 +548,19 @@ class SnowelAPI:
         return iid
 
     def inspirations(self) -> list[dict]:
-        """灵感列表：Inspiration 活跃节点全集（text 取 props.inspiration.text）。"""
+        """灵感列表：Inspiration 活跃节点全集（text 取 props.inspiration.text）。
+
+        排序按 created_event 先保存先显示（minor 池：find_nodes 无 ORDER BY，
+        此处内联 SQL，不改 find_nodes）；props 缺 inspiration 键时 text=""
+        兜底不崩（minor 池：历史行/异构来源防御）。
+        """
         return [{"id": r["id"], "name": r["name"],
-                 "text": json.loads(r["props"])["inspiration"]["text"]}
-                for r in self.find_nodes(type="Inspiration")]
+                 "text": (json.loads(r["props"]).get("inspiration")
+                          or {}).get("text", "")}
+                for r in self._conn.execute(
+                    """SELECT id, name, props FROM nodes
+                       WHERE active=1 AND types LIKE '%"Inspiration"%'
+                       ORDER BY created_event""")]
 
     # 聊天代理（W1/W6）：JSON 指令循环；工具白名单不含确认类（§7.1 红线）
     def chat(self, message: str, history=None, backend=None,

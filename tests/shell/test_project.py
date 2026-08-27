@@ -1,8 +1,10 @@
 # tests/shell/test_project.py
+import json
 import time
 
 import pytest
 
+from tests.conftest import FakeBackend
 from snowel_core.api import SnowelAPI
 from snowel.project import ProjectError, open_project, resolve_project_path
 
@@ -11,6 +13,32 @@ from snowel.project import ProjectError, open_project, resolve_project_path
 def project(tmp_path):
     SnowelAPI.init_project(tmp_path)
     return tmp_path
+
+
+def _gen_resp(facts=None):
+    return json.dumps({"draft": "生成稿", "facts": facts or [],
+                       "appeared": []}, ensure_ascii=False)
+
+
+def _make_gap_project(tmp_path) -> str:
+    """构造 L25 崩溃缺口项目：直调 queue.confirm 绕过 api.confirm 补边段。"""
+    api = SnowelAPI.init_project(tmp_path)
+    try:
+        iid = api.save_inspiration("灵感原话")
+        facts = [{"fact": "node", "id": "py1", "types": ["Premise"],
+                  "name": "两路追凶", "props": {}}]
+        pid = api.ai_generate("premise", derive_from=[iid],
+                              backend=FakeBackend([_gen_resp(facts)]))
+        api.proposals.confirm(pid)  # 产物物化、DERIVED_FROM 边缺失
+        return iid
+    finally:
+        api.close()
+
+
+def _derived_edge_count(conn, iid: str) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM edges WHERE kind='DERIVED_FROM' AND dst=?",
+        (iid,)).fetchone()[0]
 
 
 def test_resolve_priority_explicit_env_cwd(tmp_path, monkeypatch):
@@ -102,5 +130,25 @@ def test_heartbeat_renew_exception_flips_readonly(project, monkeypatch):
         assert ctx.readonly
         with pytest.raises(ProjectError):
             ctx.require_write()
+    finally:
+        ctx.close()
+
+
+def test_open_project_writable_heals_window(tmp_path):  # L25 接线（R4）
+    iid = _make_gap_project(tmp_path)
+    ctx = open_project(tmp_path, want_write=True, heartbeat=False)
+    try:
+        assert ctx.readonly is False
+        assert _derived_edge_count(ctx.api._conn, iid) == 1  # 打开即补录
+    finally:
+        ctx.close()
+
+
+def test_open_project_readonly_skips_heal(tmp_path):  # F2：readonly 不写库
+    iid = _make_gap_project(tmp_path)
+    ctx = open_project(tmp_path, want_write=False, heartbeat=False)
+    try:
+        assert ctx.readonly is True
+        assert _derived_edge_count(ctx.api._conn, iid) == 0  # 边保持缺失
     finally:
         ctx.close()

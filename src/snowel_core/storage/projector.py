@@ -147,7 +147,8 @@ HANDLERS.update({
 })
 
 def _beat_merged(tx, payload: dict, seq: int):
-    # D6：源拍失效；伏笔引用按 R1 载荷迁移（目标拍不动、派生序由 apply 尾部重算）
+    # D6：源拍失效；伏笔引用按 R1 载荷迁移、边有效期按 R2 载荷迁移
+    # （目标拍不动、派生序由 apply 尾部重算）
     tx.execute("UPDATE nodes SET active=0 WHERE id=?", (payload["source_beat_id"],))
     for m in payload.get("moved_foreshadows", []):
         row = tx.execute("SELECT props FROM nodes WHERE id=?",
@@ -158,8 +159,24 @@ def _beat_merged(tx, payload: dict, seq: int):
         p.setdefault("foreshadow", {})["planted_at"] = m["new"]
         tx.execute("UPDATE nodes SET props=? WHERE id=?",
                    (json.dumps(p, ensure_ascii=False), m["foreshadow_id"]))
+    for m in payload.get("moved_valid_until", []):
+        row = tx.execute("SELECT props FROM edges WHERE id=?",
+                         (m["edge_id"],)).fetchone()
+        if row is None:  # 载荷自含、但边不存在时静默跳过（幂等重放安全）
+            continue
+        p = json.loads(row["props"])
+        p["valid_until_beat"] = m["new"]  # 物化 valid_until 由 apply 尾部 recompute 换算
+        tx.execute("UPDATE edges SET props=? WHERE id=?",
+                   (json.dumps(p, ensure_ascii=False), m["edge_id"]))
 
 HANDLERS["beat_merged"] = _beat_merged
+
+def _beat_deleted(tx, payload: dict, seq: int):
+    # addendum §2.1：拍删除 = 源拍失效同款；story_order 清 NULL 由 apply 尾部
+    # recompute 既有机制处理（valid_until_beat 指向该拍的边随之自然开放端）
+    tx.execute("UPDATE nodes SET active=0 WHERE id=?", (payload["beat_id"],))
+
+HANDLERS["beat_deleted"] = _beat_deleted
 
 def _chapter_importance_set(tx, payload: dict, seq: int):
     # R4：低重要标记也必须事件化（append-only，rebuild 可重放）——

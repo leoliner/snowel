@@ -10,6 +10,7 @@ from __future__ import annotations
 import itertools
 import os
 import socket
+import sys
 import threading
 from pathlib import Path
 
@@ -96,6 +97,13 @@ def open_project(path: str | Path, want_write: bool = True,
     got = api.acquire_lease(holder, stale_after=stale_after) if want_write else False
     ctx = ProjectContext(api, readonly=not got,
                          holder=holder if got else None, project_path=p)
+    if got:
+        # L25（R4）：写打开时补扫 confirm 两阶段崩溃窗口；失败可重试且幂等，
+        # 记 stderr 警告不阻断打开（readonly 会话不写库，天然跳过）
+        try:
+            api.recover_derived_from()
+        except Exception as e:
+            print(f"snowel 派生边恢复失败（下次打开重试）：{e}", file=sys.stderr)
     if got and heartbeat:
         ctx.start_heartbeat(interval=max(stale_after / 3, 0.05))
     return ctx
