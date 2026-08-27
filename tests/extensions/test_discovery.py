@@ -128,3 +128,15 @@ def test_discover_no_global_dir_is_silent(tmp_path, monkey_patch_home):
     assert discover(None) == []
     assert discover(tmp_path) == []
     assert discovery.drain_warnings() == []
+
+
+def test_discover_pools_advisory_skip_warnings(tmp_path, monkey_patch_home):
+    # 合法包含越表字段（R1）：包照常进结果，"后续构组将跳过"警告也必须
+    # 经 discover 汇入池——否则用户扩展字段被静默丢弃且零提示
+    write_pack(tmp_path / "extensions", "odd", {
+        "name": "odd", "version": "1.0",
+        "groups": {"g": {"properties": {"weird": {"type": "object"}}}}})
+    packs = discover(tmp_path)
+    assert len(packs) == 1 and packs[0].name == "odd"
+    pooled = discovery.drain_warnings()
+    assert len(pooled) == 1 and "不在映射表" in pooled[0]

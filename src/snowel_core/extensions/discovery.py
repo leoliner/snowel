@@ -122,8 +122,8 @@ def discover(root: Path | None) -> list[PackManifest]:
             continue
         for pack_dir in sorted(p for p in base.iterdir() if p.is_dir()):
             manifest, warns = parse_manifest(pack_dir)
+            _warning_pool.extend(warns)  # 建议性警告（跳过字段）与致命警告同走主路径
             if manifest is None:
-                _warning_pool.extend(warns)
                 continue
             found[manifest.name] = manifest
     return list(found.values())
