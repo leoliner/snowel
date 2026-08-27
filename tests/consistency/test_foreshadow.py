@@ -146,6 +146,12 @@ def test_delete_beat_empty_succeeds(api):  # TC-ON-17 后半
     # 伏笔引用不受删除影响：仍指向承接拍 mb2
     p = json.loads(api.get_node(fid, active_only=False)["props"])
     assert p["foreshadow"]["planted_at"] == "mb2"
+    # 无 reason 调用：载荷恰一键、无 reason 键（addendum §2.1 形状 {beat_id, reason?}）
+    api.delete_beat("mb3")
+    row3 = api._conn.execute(
+        """SELECT payload FROM events WHERE kind='beat_deleted'
+           AND json_extract(payload, '$.beat_id')='mb3'""").fetchone()
+    assert json.loads(row3["payload"]) == {"beat_id": "mb3"}
 
 
 def test_delete_beat_validates(api):  # 校验面
