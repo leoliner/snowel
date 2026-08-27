@@ -159,6 +159,16 @@ def test_explicit_model_overrides_small_model(api, tmp_path):
     assert fake.calls[-1]["model"] == "qwen-max"
 
 
+def test_small_model_set_but_not_low_keeps_none(api, tmp_path):
+    # 路由组合补锚：config 已设 small_model + 章未标 low → 不路由（model=None）
+    from snowel_core.storage import config
+    _prepare(api, tmp_path)
+    config.set(api._conn, "extraction.small_model", "qwen-small")
+    fake = FakeBackend([EXTRACT_OK])
+    api.extract_and_writeback("ch1", backend=fake)
+    assert fake.calls[-1]["model"] is None
+
+
 def test_set_chapter_importance_validates(api, tmp_path):
     _prepare(api, tmp_path)
     import pytest
@@ -177,3 +187,4 @@ def test_extract_many_collects_per_chapter_failures(api, tmp_path):  # R3：省�
     assert results[0]["chapter_id"] == "ch1" and results[0]["auto_event_seq"] is not None
     assert results[1]["chapter_id"] == "ch2" and "error" in results[1]  # 失败不静默消失
     assert "镜像" in results[1]["error"]
+    assert "ValueError" in results[1]["error"]  # error 含异常类型名（minor 池）

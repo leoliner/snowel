@@ -98,6 +98,31 @@ def test_recover_derived_from_heals_window(api):  # L25 两阶段崩溃恢复
     assert api.recover_derived_from() == 0  # 再跑幂等：无缺口返回 0
 
 
+def test_inspirations_ordered_by_creation(api):  # minor 池：列表稳定序（先保存先显示）
+    ids = [api.save_inspiration(f"灵感{i}") for i in range(5)]
+    assert [i["id"] for i in api.inspirations()] == ids
+
+
+def test_save_inspiration_rejects_blank_text(api):  # minor 池：空文本拒绝
+    with pytest.raises(ValueError, match="灵感文本不能为空"):
+        api.save_inspiration("")
+    with pytest.raises(ValueError, match="灵感文本不能为空"):
+        api.save_inspiration("   \n\t ")
+
+
+def test_inspirations_tolerates_missing_inspiration_props(api):  # minor 池：缺键兜底
+    # 手工构造无 inspiration 键的 Inspiration 节点（直发 proposal_confirmed，
+    # 同 _seed_beat 手法）→ 列表返回 text="" 不崩
+    with db.transaction(api._conn):
+        events.append_event(api._conn, "proposal_confirmed", {
+            "artifact_type": "t", "facts": [
+                {"fact": "node", "id": "ins-bare", "types": ["Inspiration"],
+                 "name": "裸灵感", "props": {}}]})
+    projector.apply(api._conn)
+    items = api.inspirations()
+    assert [i["text"] for i in items if i["id"] == "ins-bare"] == [""]
+
+
 def test_recover_derived_from_noop_when_complete(api):
     iid = api.save_inspiration("灵感原话")
     facts = [{"fact": "node", "id": "py1", "types": ["Premise"],

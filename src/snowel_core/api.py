@@ -348,14 +348,16 @@ class SnowelAPI:
         """按序循环单章抽取，返回逐章结果列表。
 
         单章失败不吞：成功条目为抽取结果（含 chapter_id），失败条目为
-        {"chapter_id": ..., "error": ...}，调用方按 chapter_id 对齐。
+        {"chapter_id": ..., "error": "<异常类型名>: <消息>"}，调用方按
+        chapter_id 对齐。
         """
         results = []
         for cid in chapter_ids:
             try:
                 results.append(self.extract_and_writeback(cid, backend))
             except Exception as e:
-                results.append({"chapter_id": cid, "error": str(e)})
+                results.append({"chapter_id": cid,
+                                "error": f"{type(e).__name__}: {e}"})
         return results
 
     def deviation(self, chapter_id: str) -> dict:
@@ -532,8 +534,10 @@ class SnowelAPI:
         """保存灵感原话：追加 inspiration_saved 事件（facts 含 Inspiration 节点）。
 
         作者手输属显式操作——原话全文存 props.inspiration.text 永久保留，
-        后续提炼物经 DERIVED_FROM 边指回本节点（R2）。
+        后续提炼物经 DERIVED_FROM 边指回本节点（R2）；空/纯空白文本拒绝。
         """
+        if not (text or "").strip():
+            raise ValueError("灵感文本不能为空")
         iid = str(uuid.uuid4())
         with db.transaction(self._conn):
             events.append_event(self._conn, "inspiration_saved", {
@@ -544,10 +548,19 @@ class SnowelAPI:
         return iid
 
     def inspirations(self) -> list[dict]:
-        """灵感列表：Inspiration 活跃节点全集（text 取 props.inspiration.text）。"""
+        """灵感列表：Inspiration 活跃节点全集（text 取 props.inspiration.text）。
+
+        排序按 created_event 先保存先显示（minor 池：find_nodes 无 ORDER BY，
+        此处内联 SQL，不改 find_nodes）；props 缺 inspiration 键时 text=""
+        兜底不崩（minor 池：历史行/异构来源防御）。
+        """
         return [{"id": r["id"], "name": r["name"],
-                 "text": json.loads(r["props"])["inspiration"]["text"]}
-                for r in self.find_nodes(type="Inspiration")]
+                 "text": (json.loads(r["props"]).get("inspiration")
+                          or {}).get("text", "")}
+                for r in self._conn.execute(
+                    """SELECT id, name, props FROM nodes
+                       WHERE active=1 AND types LIKE '%"Inspiration"%'
+                       ORDER BY created_event""")]
 
     # 聊天代理（W1/W6）：JSON 指令循环；工具白名单不含确认类（§7.1 红线）
     def chat(self, message: str, history=None, backend=None,
