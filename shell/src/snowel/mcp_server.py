@@ -22,14 +22,16 @@ _NOT_WIRED_PLANNED: dict[str, str] = {}  # 阶段三接线完毕；新能力先�
 class StaticTokenVerifier:
     """静态 Bearer token 校验（R3，单用户本地/局域网场景）。
 
-    compare_digest 常量时间比较防时序侧信道；scopes 恒空（SDK 必填字段，
-    未做细粒度授权）。"""
+    compare_digest 按字节比较：str 形态要求 ASCII，畸形 Authorization 头
+    （非 ASCII，真实客户端可发原始字节）会 TypeError 穿透成 500——编码后
+    比较使畸形输入正常走 401；scopes 恒空（SDK 必填字段，未做细粒度授权）。"""
 
     def __init__(self, token: str) -> None:
         self._token = token
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        if secrets.compare_digest(token, self._token):
+        if secrets.compare_digest(token.encode("utf-8"),
+                                  self._token.encode("utf-8")):
             return AccessToken(token=token, client_id="snowel-mcp", scopes=[])
         return None
 
@@ -83,9 +85,13 @@ def build_mcp(ctx: ProjectContext, backend=None, host: str = "127.0.0.1",
     host/port/token_verifier 仅 streamable HTTP 消费（stdio 不读），
     默认值保持既有调用形状零变化。"""
     # mcp 1.29.0 构造期强校验：token_verifier 必须伴随 auth 设置；纯资源
-    # 服务器不做 OAuth 签发，issuer 仅占位，bearer 路径只消费 token_verifier
+    # 服务器不做 OAuth 签发，issuer 仅占位，bearer 路径只消费 token_verifier。
+    # resource_server_url 进 WWW-Authenticate/受保护资源元数据，IPv6 形态
+    # host（含 ":"，如通配 "::"）必须方括号——裸拼接 "http://:::8642" 构造即崩
+    base = (f"http://[{host}]:{port}" if ":" in host
+            else f"http://{host}:{port}")
     auth = (AuthSettings(issuer_url="http://localhost",
-                         resource_server_url=f"http://{host}:{port}")
+                         resource_server_url=base)
             if token_verifier is not None else None)
     mcp = FastMCP("snowel", host=host, port=port,
                   token_verifier=token_verifier, auth=auth)

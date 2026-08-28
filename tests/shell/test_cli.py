@@ -193,11 +193,12 @@ def test_mcp_command_wildcard_requires_token(monkeypatch):
         assert res.exit_code == 1
         assert "token" in res.output
 
-    # 带 token → 守卫放行，token/http 原样透传 main
+    # 带 token → 守卫放行，token/host/http 原样透传 main
     ok = runner.invoke(app, ["mcp", "--http", "--host", "0.0.0.0",
                              "--token", "s3cret"])
     assert ok.exit_code == 0
     assert captured["http"] is True and captured["token"] == "s3cret"
+    assert captured["host"] == "0.0.0.0"
 
     # 默认 host（loopback）无 token 不拦；host/port 默认值透传
     loop = runner.invoke(app, ["mcp", "--http"])

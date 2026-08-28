@@ -535,6 +535,20 @@ async def test_http_app_tool_enumeration_matches_stdio(project):
         http_ctx.close()
 
 
+async def test_ipv6_wildcard_host_builds_with_token(project):
+    # 规格：--host :: + token 守卫放行后必须可启动。resource_server_url 若裸
+    # 拼接得 "http://:::8642"，AuthSettings 构造期 ValidationError 裸崩——
+    # IPv6 形态 host 须走方括号 URL
+    ctx = open_project(project)
+    try:
+        mcp = build_mcp(ctx, host="::", port=8642,
+                        token_verifier=StaticTokenVerifier("s3cret"))
+        app = mcp.streamable_http_app()  # 冒烟：路由+middleware 全量装配
+        assert app is not None
+    finally:
+        ctx.close()
+
+
 async def test_http_wrong_token_401(project):
     http_ctx = open_project(project)
     try:
@@ -551,10 +565,16 @@ async def test_http_wrong_token_401(project):
                 no_auth = await c.post("/mcp", json=init, headers=accept)
                 wrong = await c.post("/mcp", json=init, headers={
                     **accept, "Authorization": "Bearer wrong"})
+                # 真实客户端可发原始字节头（httpx 便捷层不拦 bytes）：starlette
+                # 按 latin-1 解码得非 ASCII str——畸形 token 须 401 而非 TypeError 500
+                mojibake = await c.post("/mcp", json=init, headers={
+                    **accept,
+                    "Authorization": "Bearer tøken".encode("utf-8")})
                 good = await c.post("/mcp", json=init, headers={
                     **accept, "Authorization": "Bearer s3cret"})
         assert no_auth.status_code == 401
         assert wrong.status_code == 401
+        assert mojibake.status_code == 401
         assert "invalid_token" in no_auth.headers["www-authenticate"]
         assert good.status_code == 200  # 对 token 放行（会话初始化成功）
     finally:
