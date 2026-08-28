@@ -1,5 +1,5 @@
 # extensions/infinite-flow/hooks.py
-"""无限流包示范规则：排名轨迹写入须附轨迹方向（R2）。
+"""无限流包示范规则：排名轨迹写入须附轨迹方向。
 
 分工示范：direction 在 schema 上刻意 optional（形状归 schema），
 跨字段语义义务（写入轨迹组必须交代方向）归本规则（语义归 hooks）。

@@ -47,7 +47,8 @@ def _copy_pack(base: Path, *, version=None) -> Path:
     """真包只读 copytree 到 tmp 侧（R3：绝不原地挂载仓库目录）；version 给定
     时改写副本 manifest 的 version 字节 → 同名不同 digest（TC-EX-01 全局侧）。"""
     d = base / "infinite-flow"
-    shutil.copytree(PACK_DIR, d)
+    shutil.copytree(PACK_DIR, d,
+                    ignore=shutil.ignore_patterns("__pycache__"))
     if version is not None:
         manifest = json.loads((d / "schema.json").read_text(encoding="utf-8"))
         manifest["version"] = version

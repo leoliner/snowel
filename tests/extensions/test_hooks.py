@@ -82,7 +82,8 @@ PACK_DIR = Path(__file__).parents[2] / "extensions" / "infinite-flow"
 def _copy_pack(base: Path) -> Path:
     """真包只读 copytree 到 tmp 项目 extensions/（R3：绝不原地挂载仓库目录）。"""
     d = base / "infinite-flow"
-    shutil.copytree(PACK_DIR, d)
+    shutil.copytree(PACK_DIR, d,
+                    ignore=shutil.ignore_patterns("__pycache__"))
     return d
 
 

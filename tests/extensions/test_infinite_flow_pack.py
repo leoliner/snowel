@@ -1,5 +1,6 @@
 """预制无限流薄包冒烟（plan §6 Task 1）：真包即 TC-EX 素材源，四例锚定
 parse 合法四组 / digest 稳定 / hooks 恰一条规则 / 组模型 required-Optional 形状。"""
+import shutil
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,14 @@ from snowel_core.extensions.mounting import Registry, build_group_models, load_h
 PACK_DIR = Path(__file__).parents[2] / "extensions" / "infinite-flow"
 GROUPS = {"flow_space_seniority", "flow_rank_track",
           "flow_abilities", "flow_blindspot"}
+
+
+@pytest.fixture(autouse=True)
+def _sweep_real_pack_pycache():
+    """load_hooks(PACK_DIR) 直载真包 hooks.py 会在仓库真包目录落 __pycache__
+    字节码缓存（污染分发物）；每例后清扫，保证真包目录零测试残留。"""
+    yield
+    shutil.rmtree(PACK_DIR / "__pycache__", ignore_errors=True)
 
 
 def test_pack_manifest_parses_clean():

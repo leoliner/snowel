@@ -32,7 +32,7 @@ description: Snowel 扩展包（extension pack）制作规范——schema.json �
 
 - 包的标识是 schema.json 的 `name` 字段（挂载/卸载命令用它）；目录名建议与之一致但机制上不要求。
 - 发现顺序：先扫全局、再扫项目，**同名（name 相同）时项目侧覆盖全局侧**——想试验改包就复制一份到项目侧改，不影响全局原件。
-- 全局目录不存在属正常（静默视为空）；放好包无需任何注册——任意打开项目的命令（`snowel status` / `snowel web` / `snowel ext list` 等）在打开项目时经启动重载（api open/init 尾部 → mounting.reload）自动发现并生效。
+- 全局目录不存在属正常（静默视为空）；放好包无需任何注册，任意打开项目的命令（`snowel status` / `snowel web` / `snowel ext list` 等）在打开项目时经启动重载（api open/init 尾部 → mounting.reload）自动发现（已挂载过的包重启后自动恢复生效；新包首次须 `snowel ext mount`）。
 - 扩展是纯增量：`snowel init` 不预置、不定任何题材包；既有项目中途装/卸包对已有数据零惩罚（§5）。
 
 ## 3. schema.json 规范
