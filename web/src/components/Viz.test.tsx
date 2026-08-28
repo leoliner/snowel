@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import PovChart from './PovChart'
-import ForeshadowMap from './ForeshadowMap'
+import ForeshadowMap, { DOT_R, W as MAP_W } from './ForeshadowMap'
 import RelationsGraph from './RelationsGraph'
 import PacingBars from './PacingBars'
 import VizPanel from './VizPanel'
@@ -102,13 +102,14 @@ describe('ForeshadowMap（伏笔时间线，W4）', () => {
     const host = screen.getByTestId('foreshadow-map')
     const svg = host.querySelector('svg') as SVGSVGElement
     const W = Number(svg.getAttribute('width'))
-    expect(W).toBe(320)
-    // 区间条右端 = x + width 不超画布；圆点右缘 = cx + DOT_R(3.5) 不超画布
+    // 画布宽与组件导出常量同源（W/DOT_R 解耦，minor 池）
+    expect(W).toBe(MAP_W)
+    // 区间条右端 = x + width 不超画布；圆点右缘 = cx + DOT_R 不超画布
     svg.querySelectorAll('rect').forEach((r) => {
       expect(Number(r.getAttribute('x')) + Number(r.getAttribute('width'))).toBeLessThanOrEqual(W)
     })
     svg.querySelectorAll('circle').forEach((c) => {
-      expect(Number(c.getAttribute('cx')) + 3.5).toBeLessThanOrEqual(W)
+      expect(Number(c.getAttribute('cx')) + DOT_R).toBeLessThanOrEqual(W)
     })
   })
 })

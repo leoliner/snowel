@@ -19,6 +19,9 @@ import ProseEditor from './components/ProseEditor'
 import ChatSidebar from './components/ChatSidebar'
 import VizPanel from './components/VizPanel'
 import type { WorkspaceTab } from './components/VizPanel'
+import ManualModal from './components/ManualModal'
+import Tour, { TOUR_STORAGE_KEY } from './components/Tour'
+import { MANUAL_LABELS } from './components/labels'
 
 function Skeleton({ className = 'h-4' }: { className?: string }) {
   return <div data-testid="skeleton" className={`skeleton ${className}`} />
@@ -34,6 +37,11 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   // T13：工作区顶部 tab（提案/可视化 互斥），状态提升以便 onGoProposals 切 tab
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('proposals')
+  // T2（TC-SH-13 / R3）：手册弹窗，顶栏"？"常驻入口
+  const [manualOpen, setManualOpen] = useState(false)
+  // T3（TC-SH-14 / R4）：tour 重启信号——欢迎卡显隐与记忆键在 Tour 内部管理，
+  // 手册"重看导览"按钮 = 清键（下方接线处）+ 递增本信号（Tour 收到即从第 1 步运行）
+  const [tourRunSignal, setTourRunSignal] = useState(0)
 
   const data = session.data
   const readonly = data?.readonly ?? false
@@ -65,6 +73,16 @@ export default function App() {
             title={readonly ? '只读会话' : '写会话'}
             className={`h-2.5 w-2.5 rounded-full ${readonly ? 'bg-warn' : 'bg-ok'}`}
           />
+          <button
+            data-testid="manual-btn"
+            type="button"
+            title={MANUAL_LABELS.openBtn}
+            aria-label={MANUAL_LABELS.openBtn}
+            onClick={() => setManualOpen(true)}
+            className="rounded-btn border border-border bg-raised px-2 py-0.5 text-xs leading-none text-primary hover:bg-border"
+          >
+            ？
+          </button>
         </div>
       </header>
 
@@ -80,8 +98,8 @@ export default function App() {
         </div>
       )}
 
-      {/* 三栏主体（§3）：左 240px / 中 flex（min 480px）/ 右 380px */}
-      <main className="flex min-h-0 flex-1">
+      {/* 三栏主体（§3）：左 240px / 中 flex（min 480px）/ 右 380px；testid 供 tour 第 1 步高亮定位 */}
+      <main data-testid="app-main" className="flex min-h-0 flex-1">
         {/* 左栏：流程树容器（T10） */}
         <aside
           data-testid="col-flow"
@@ -204,6 +222,20 @@ export default function App() {
           </div>
         </aside>
       </main>
+
+      {/* T2（TC-SH-13 / R3）：手册弹窗挂根部（内部 open=false 返 null）；
+          T3（TC-SH-14 / R4）："重看操作导览"= 清键 + 关弹窗 + 递增 tour 重启信号 */}
+      <ManualModal
+        open={manualOpen}
+        onClose={() => setManualOpen(false)}
+        onRestartTour={() => {
+          localStorage.removeItem(TOUR_STORAGE_KEY)
+          setManualOpen(false)
+          setTourRunSignal((n) => n + 1)
+        }}
+      />
+      {/* T3（TC-SH-14 / R2）：操作指引 tour 挂根部（内部 idle 返 null） */}
+      <Tour runSignal={tourRunSignal} />
     </div>
   )
 }

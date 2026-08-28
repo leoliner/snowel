@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import App from './App'
 import { useApi } from './api'
 import { streamSSE } from './sse'
 import type { Session } from './types'
+import { TOUR_STORAGE_KEY } from './components/Tour'
+import { TOUR_STEPS } from './components/labels'
 
 // 数据层整体 mock：App 壳测试不触网络（真实 api 面由 T10–T13 组件测试覆盖）
 vi.mock('./api', () => ({
@@ -36,6 +38,11 @@ const readonlySession: Session = {
 function mockSession(session: Session | null, loading = false, error: string | null = null) {
   mockUseApi.mockReturnValue({ data: session, loading, error })
 }
+
+// tour 记忆键跨测试残留会翻转欢迎卡显隐，先清再测（真实 jsdom localStorage）
+beforeEach(() => {
+  localStorage.clear()
+})
 
 describe('App 三栏布局壳（ui-design-01 §3）', () => {
   it('渲染四容器：col-flow / col-prose / col-workspace / col-chat', () => {
@@ -138,6 +145,53 @@ describe('T3 灵感面板挂载（TC-SH-09 / R4：proposals tab，GenerateForm �
     expect(screen.getByTestId('inspiration-panel')).toBeInTheDocument()
     expect(screen.getByLabelText('灵感原话')).toBeDisabled()
     expect(screen.getByRole('button', { name: '保存灵感' })).toBeDisabled()
+  })
+})
+
+describe('T2 手册弹窗入口（TC-SH-13 / R3：顶栏"？"常驻）', () => {
+  it('manual-btn 存在（title 使用手册）；点击打开弹窗且目录为真实 12 章', () => {
+    mockSession(writableSession)
+    render(<App />)
+    expect(screen.queryByRole('dialog', { name: '使用手册' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '使用手册' }))
+    expect(screen.getByTestId('manual-btn')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '使用手册' })).toBeInTheDocument()
+    expect(within(screen.getByTestId('manual-toc')).getAllByRole('button')).toHaveLength(12)
+  })
+
+  it('弹窗内关闭按钮 → 弹窗收起（onClose 接线）', () => {
+    mockSession(writableSession)
+    render(<App />)
+    fireEvent.click(screen.getByTestId('manual-btn'))
+    expect(screen.getByRole('dialog', { name: '使用手册' })).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('manual-close'))
+    expect(screen.queryByRole('dialog', { name: '使用手册' })).not.toBeInTheDocument()
+  })
+})
+
+describe('T3 操作指引 tour 接线（TC-SH-14 / R4）', () => {
+  it('有记忆键 → 欢迎卡不出现；无键 → 欢迎卡出现', () => {
+    localStorage.setItem(TOUR_STORAGE_KEY, '1')
+    mockSession(writableSession)
+    const { unmount } = render(<App />)
+    expect(screen.queryByTestId('tour-welcome')).not.toBeInTheDocument()
+    unmount()
+    localStorage.removeItem(TOUR_STORAGE_KEY)
+    render(<App />)
+    expect(screen.getByTestId('tour-welcome')).toBeInTheDocument()
+  })
+
+  it('手册"重看导览"按钮 → 清键 + 弹窗收起 + tour 从第 1 步启动', () => {
+    localStorage.setItem(TOUR_STORAGE_KEY, '1')
+    mockSession(writableSession)
+    render(<App />)
+    fireEvent.click(screen.getByTestId('manual-btn'))
+    fireEvent.click(screen.getByRole('button', { name: '重看操作导览' }))
+    expect(localStorage.getItem(TOUR_STORAGE_KEY)).toBeNull()
+    expect(screen.queryByRole('dialog', { name: '使用手册' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('tour-bubble')).toBeInTheDocument()
+    expect(screen.getByTestId('tour-overlay')).toBeInTheDocument()
+    expect(screen.getByText(TOUR_STEPS[0].title)).toBeInTheDocument()
   })
 })
 

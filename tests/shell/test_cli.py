@@ -213,6 +213,28 @@ def test_mcp_command_wildcard_requires_token(monkeypatch):
     assert Path(captured["project"]) == Path("some/proj").resolve()
 
 
+def test_mcp_command_bracketed_ipv6_host_normalized(monkeypatch):  # RW-②
+    # 方括号 host 归一（"[::1]"→"::1"）防 build_mcp 二次包裹崩；守卫集合
+    # 匹配在 strip 后进行——"[::]" 归一为 "::" 仍被通配守卫拦截（语义不弱化）
+    captured = {}
+
+    def fake_main(**kw):
+        captured.update(kw)
+
+    monkeypatch.setattr("snowel.mcp_server.main", fake_main)
+
+    res = runner.invoke(app, ["mcp", "--http", "--host", "[::1]",
+                              "--token", "s3cret"])
+    assert res.exit_code == 0  # ::1 是 loopback 非通配：持 token 直接放行
+    assert captured["host"] == "::1"
+
+    for bracketed_wildcard in ("[0.0.0.0]", "[::]"):
+        blocked = runner.invoke(app, ["mcp", "--http", "--host",
+                                      bracketed_wildcard])
+        assert blocked.exit_code == 1
+        assert "token" in blocked.output
+
+
 # ---- ext 子命令组（TC-EX-01/03 出口面；hooks 引擎行为在 tests/extensions/）----
 
 EXT_SCHEMA = {

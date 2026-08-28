@@ -20,7 +20,8 @@ export default function InspirationPanel({
   refreshKey,
   onSaved,
 }: InspirationPanelProps) {
-  const { data } = useApi<InspirationItem[]>('/api/inspirations', refreshKey)
+  // SH-③：列表取数失败解构 error，红条呈现（照 ProseEditor beatsError 范式）
+  const { data, error: listError } = useApi<InspirationItem[]>('/api/inspirations', refreshKey)
   const items = Array.isArray(data) ? data : []
   const [text, setText] = useState('')
   const [saving, setSaving] = useState(false)
@@ -74,6 +75,14 @@ export default function InspirationPanel({
           className="rounded-input bg-danger/15 px-2 py-1 text-xs text-danger"
         >
           {error}
+        </div>
+      )}
+      {listError && (
+        <div
+          role="alert"
+          className="rounded-input bg-danger/15 px-2 py-1 text-xs text-danger"
+        >
+          {listError}
         </div>
       )}
       {items.length > 0 && (

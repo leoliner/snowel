@@ -70,6 +70,26 @@ describe('FlowTree（ui-design-01 §3 左栏）', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(7)
   })
 
+  it('场景层 done 显示查 wire 复数键 scenes（执行-6 carry：labels 单数化后经 toFlowLayer 换算）', () => {
+    mockFlow({ ...flow, layers: { ...flow.layers, scenes: 'done' } })
+    render(<FlowTree />)
+    const scene = screen.getByText('场景').closest('li')
+    expect(scene).toHaveTextContent('✓')
+    expect(scene).toHaveClass('text-accent')
+  })
+
+  it('场景层 current 高亮查 wire 复数键 scenes（执行-6 carry 同上）', () => {
+    mockFlow({
+      ...flow,
+      layers: { ...flow.layers, characters: 'done', scenes: 'todo' },
+      current_layer: 'scenes',
+    })
+    render(<FlowTree />)
+    const scene = screen.getByText('场景').closest('li')
+    expect(scene).toHaveTextContent('●')
+    expect(scene).toHaveClass('text-warn')
+  })
+
   it('封卷为危险操作：点击弹二次确认对话框（§5.4），Esc 取消不调接口', () => {
     mockFlow(flow)
     render(<FlowTree />)

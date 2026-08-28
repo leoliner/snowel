@@ -67,6 +67,14 @@ describe('InspirationPanel（右栏提案 tab 灵感面板，TC-SH-09 / R4）', 
     expect(mockPost).not.toHaveBeenCalled()
   })
 
+  it('列表取数失败 → 红条呈现错误（SH-③，照 beatsError 范式）', () => {
+    mockUseApi.mockReturnValue({
+      data: null, loading: false, error: 'GET /api/inspirations 500',
+    })
+    render(<InspirationPanel readonly={false} refreshKey={0} onSaved={() => {}} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('GET /api/inspirations 500')
+  })
+
   it('POST 失败 → 红条呈现后端 detail（§5.3 doSave 范式）', async () => {
     mockPost.mockRejectedValue(new Error('灵感文本不能为空'))
     const onSaved = vi.fn()

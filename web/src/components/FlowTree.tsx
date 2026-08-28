@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { api, useApi } from '../api'
 import type { Chapter, FlowState, Volume } from '../types'
-import { LAYER_LABELS, LAYERS } from './labels'
+import { LAYER_LABELS, LAYERS, toFlowLayer } from './labels'
 import ConfirmDialog from './ConfirmDialog'
 
 interface FlowTreeProps {
@@ -60,8 +60,10 @@ export default function FlowTree({ readonly = false, onSelectChapter, refreshKey
       {/* 七层流程（§3：done ✓ accent / todo ○ muted / current ● warn 高亮） */}
       <ul data-testid="flow-layers" className="flex flex-col gap-1">
         {LAYERS.map((layer) => {
-          const done = layers?.[layer] === 'done'
-          const isCurrent = layer === current
+          // 生成环键单数 scene，进度 wire 键复数 scenes——查表经 toFlowLayer 换算
+          const wire = toFlowLayer(layer)
+          const done = layers?.[wire] === 'done'
+          const isCurrent = wire === current
           return (
             <li
               key={layer}

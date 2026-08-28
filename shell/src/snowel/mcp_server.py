@@ -69,6 +69,14 @@ def _rows(rows) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _require_params(p: dict, keys: list[str]) -> None:
+    """带参 op 分派前守卫：缺失/空值键 → ValueError 中文文案（SH-②，
+    与 Web `_require` 400 语义对齐；直取 p[key] 会 KeyError 机翻）。"""
+    missing = [k for k in keys if not p.get(k)]
+    if missing:
+        raise ValueError("参数缺失：" + "、".join(missing))
+
+
 def _not_wired(capability: str, planned_in: str | None = None) -> dict:
     return {
         "wired": False,
@@ -250,17 +258,20 @@ def build_mcp(ctx: ProjectContext, backend=None, host: str = "127.0.0.1",
         if op == "audit":
             return {"result": ctx.api.audit_recent()}
         if op == "inspiration_save":
+            _require_params(p, ["text"])
             ctx.require_write()
             return {"wired": True,
                     "inspiration_id": ctx.api.save_inspiration(p["text"])}
         if op == "inspiration_list":
             return {"wired": True, "result": ctx.api.inspirations()}
         if op == "beat_merge":
+            _require_params(p, ["source", "target"])
             ctx.require_write()
             return {"wired": True,
                     "event_seq": ctx.api.merge_beats(p["source"],
                                                      p["target"])}
         if op == "beat_delete":
+            _require_params(p, ["beat_id"])
             ctx.require_write()
             return {"wired": True,
                     "event_seq": ctx.api.delete_beat(p["beat_id"],
@@ -278,6 +289,10 @@ def build_mcp(ctx: ProjectContext, backend=None, host: str = "127.0.0.1",
 
 def main(project=None, http: bool = False, host: str = "127.0.0.1",
          port: int = 8642, token: str | None = None) -> None:
+    # 方括号 host 归一（RW-②）："[::1]" → "::1"，防 build_mcp 二次包裹
+    # （"http://[[::1]]:8642" 构造即崩）；守卫集合匹配在 strip 后进行——
+    # "[::]" 归一为 "::" 仍被通配守卫拦截，"[::1]"（loopback 非通配）放行
+    host = host.strip("[]")
     # 防御性同款守卫（R4）：main 可不经 CLI 直调（如 python -m），
     # 通配地址必须持 token，与 cli 的 mcp 命令守卫保持同一集合
     if http and token is None and host in ("0.0.0.0", "::"):

@@ -295,6 +295,20 @@ async def test_advanced_new_ops_catalog(project):  # TC-SH-11 锚
         assert "snowel ext" in ops["extension_packs"]["planned_in"]
 
 
+async def test_advanced_missing_params_chinese_error(project):  # SH-②
+    # 带参 op 缺参 → 中文文案工具错误（与 Web _require 400 语义对齐），
+    # 不再 KeyError 机翻（"'text'"）
+    async with _connected(project) as (ctx, client):
+        for args, key in (
+                ({"op": "inspiration_save", "params": {}}, "text"),
+                ({"op": "beat_merge", "params": {"source": "a"}}, "target"),
+                ({"op": "beat_delete", "params": {}}, "beat_id")):
+            res = await client.call_tool("snowel_advanced", args)
+            assert res.isError
+            assert f"参数缺失：{key}" in res.content[0].text
+            assert "KeyError" not in res.content[0].text
+
+
 async def test_advanced_inspiration_save_and_list(project):
     async with _connected(project) as (ctx, client):
         s = await _call(client, "snowel_advanced", {
@@ -547,6 +561,38 @@ async def test_ipv6_wildcard_host_builds_with_token(project):
         assert app is not None
     finally:
         ctx.close()
+
+
+def test_main_normalizes_bracketed_host(monkeypatch, tmp_path):  # RW-②
+    # main 可不经 CLI 直调（python -m 形态）：方括号 host 同款 strip 归一，
+    # 通配守卫在 strip 后判定（"[::]" 无 token → 拒绝启动）
+    captured = {}
+
+    class _FakeMcp:
+        def __init__(self, *args, **kw):
+            captured.update(kw)
+
+        def run(self, transport):
+            captured["transport"] = transport
+
+    class _FakeCtx:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("snowel.mcp_server.open_project",
+                        lambda p: _FakeCtx())
+    monkeypatch.setattr("snowel.mcp_server.resolve_project_path",
+                        lambda p: tmp_path)
+    monkeypatch.setattr("snowel.mcp_server.build_mcp", _FakeMcp)
+
+    from snowel import mcp_server
+    mcp_server.main(project=tmp_path, http=True, host="[::1]", token="t")
+    assert captured["host"] == "::1"
+    assert captured["transport"] == "streamable-http"
+
+    with pytest.raises(SystemExit) as ei:
+        mcp_server.main(project=tmp_path, http=True, host="[::]", token=None)
+    assert ei.value.code == 1
 
 
 async def test_http_wrong_token_401(project):
