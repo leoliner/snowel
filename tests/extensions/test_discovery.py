@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,23 @@ def write_pack(base: Path, name: str, payload) -> Path:
     return d
 
 
+# 真包（R3 主锚）：tests/extensions → tests → 仓库根
+PACK_DIR = Path(__file__).parents[2] / "extensions" / "infinite-flow"
+
+
+def _copy_pack(base: Path, *, version=None) -> Path:
+    """真包只读 copytree 到 tmp 侧（R3：绝不原地挂载仓库目录）；version 给定
+    时改写副本 manifest 的 version 字节 → 同名不同 digest（TC-EX-01 全局侧）。"""
+    d = base / "infinite-flow"
+    shutil.copytree(PACK_DIR, d)
+    if version is not None:
+        manifest = json.loads((d / "schema.json").read_text(encoding="utf-8"))
+        manifest["version"] = version
+        (d / "schema.json").write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    return d
+
+
 @pytest.fixture
 def monkey_patch_home(tmp_path, monkeypatch):
     """伪造家目录：Windows 读 USERPROFILE、POSIX 读 HOME，两处都改并钉死
@@ -57,16 +75,17 @@ def _fresh_warning_pool():
 
 def test_discover_prefers_project_over_global(tmp_path, monkey_patch_home):  # TC-EX-01
     global_dir = monkey_patch_home / ".snowel" / "extensions"
-    old = dict(PACK_SCHEMA, version="0.1.0")
-    new = dict(PACK_SCHEMA, version="0.2.0")
-    write_pack(global_dir, "wuxia", old)
-    write_pack(tmp_path / "extensions", "wuxia", new)
+    g_pack = _copy_pack(global_dir, version="2.0.0")  # 全局同名改版：同名不同 digest
+    p_pack = _copy_pack(tmp_path / "extensions")      # 项目内原版 1.0.0
 
     packs = discover(tmp_path)
     assert len(packs) == 1
-    assert packs[0].name == "wuxia"
-    assert packs[0].version == "0.2.0"  # 项目内版本生效（覆盖全局）
+    assert packs[0].name == "infinite-flow"
+    assert packs[0].version == "1.0.0"  # 项目内版本生效（覆盖全局 2.0.0）
     assert packs[0].scope == "project"
+    # 同名不同内容实证：选中者的 digest 即项目侧原件，而非全局改版
+    assert packs[0].schema_digest == parse_manifest(p_pack)[0].schema_digest
+    assert packs[0].schema_digest != parse_manifest(g_pack)[0].schema_digest
 
 
 def test_parse_valid_manifest_roundtrip(tmp_path, monkey_patch_home):

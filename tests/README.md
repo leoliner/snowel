@@ -17,7 +17,7 @@
 | `proposal/test_proposal.py` | `proposal/queue.py`（提案状态机） | TC-PR-01~07、TC-EV-07/08 |
 | `api/test_api.py` | `api.py`（门面端到端） | 冒烟：init→create→confirm→query→rebuild |
 | `consistency/`（test_engine / test_rules_* / test_seal / test_wiring / test_deathbeat / test_retcon / test_foreshadow） | `consistency/`（级联引擎/封卷/retcon/伏笔注册） | TC-CC-01~08、TC-WB-08、TC-ON-10 后半、TC-ON-16、TC-ON-17、TC-PR-02 retcon 面 |
-| `extensions/`（test_discovery / test_mounting / test_hooks） | `extensions/`（扩展包发现与 manifest 解析/挂卸载事件闭环+启动重载/hooks 隔离加载，规则进一致性引擎） | TC-EX-01（项目优先同名覆盖）、02（中途挂载零影响）、03（卸载引用校验拦截）、04（hooks 与核心规则同引擎）、05（schema 缺失跳过/hooks 错误隔离）；CLI `ext` 出口面锚在 `shell/test_cli.py` |
+| `extensions/`（test_discovery / test_mounting / test_hooks / test_infinite_flow_pack） | `extensions/`（扩展包发现与 manifest 解析/挂卸载事件闭环+启动重载/hooks 隔离加载，规则进一致性引擎/真包冒烟——`extensions/infinite-flow` 即 TC-EX 素材源） | TC-EX-01（项目优先同名覆盖）、02（中途挂载零影响）、03（卸载引用校验拦截）、04（hooks 与核心规则同引擎）、05（schema 缺失跳过/hooks 错误隔离）；CLI `ext` 出口面锚在 `shell/test_cli.py` |
 | `shell/`（test_project / test_mcp_server / test_cli / test_lease_integration / test_web_server） | 壳包 `snowel`（project.py/cli.py/mcp_server.py/web_server.py） | TC-SH-01/02/04/05/06、TC-SH-03 子集、TC-SH-07（status/backup/export）、TC-SH-08 面（test_web_server：租约/写守卫/写 API/聊天约束/端到端）、L25 open_project 接线补锚 |
 | `llm/`（test_backend / test_embed / test_chat） | `llm/`（backend 协议/litellm 适配、embed provider 接口、聊天代理 JSON 指令循环） | TC-RT-05（小模型路由面）、W1 聊天代理（§7.1） |
 | `web/`（vitest：App / sse / components/*.test.tsx） | Web 前端（React 三栏界面；vitest + @testing-library/react，vi.mock 数据层不发真实请求） | TC-SH-08 组件锚（浏览器级 E2E 豁免 W3） |

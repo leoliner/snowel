@@ -1,5 +1,6 @@
 """扩展包 hooks 隔离加载（TC-EX-04 / TC-EX-05 hooks 半、R2 包级原子）。"""
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,17 @@ def _write_pack(base: Path, schema=PACK_SCHEMA, hooks=None) -> Path:
     return d
 
 
+# 真包（R3 主锚）：tests/extensions → tests → 仓库根
+PACK_DIR = Path(__file__).parents[2] / "extensions" / "infinite-flow"
+
+
+def _copy_pack(base: Path) -> Path:
+    """真包只读 copytree 到 tmp 项目 extensions/（R3：绝不原地挂载仓库目录）。"""
+    d = base / "infinite-flow"
+    shutil.copytree(PACK_DIR, d)
+    return d
+
+
 def _seed_mechanism(conn, level):
     """内置规则触发器（tests/consistency/test_wiring.py 同款种子）：
     既有 Mechanism.mechanism.level，后续变更才构成矛盾比对面。"""
@@ -85,36 +97,49 @@ def _seed_mechanism(conn, level):
     projector.apply(conn)
 
 
-# 一份变更集同时踩两条线：combat.power>0 缺 realm（hook 规则）
-# 与 mechanism.level 3→7（内置 contradiction 规则）
+# 一份变更集同时踩两条线：flow_rank_track 缺 direction（真包规则，R2 语义
+# 义务未履行）与 mechanism.level 3→7（内置 contradiction 规则）
 _MIXED_CHANGES = [
-    {"fact": "node", "id": "n1", "types": ["Character"], "name": "剑修",
-     "props": {"combat": {"power": 5}}},
+    {"fact": "node", "id": "n1", "types": ["Character"], "name": "林晚",
+     "props": {"flow_rank_track": {"current_rank": 480000}}},
     {"fact": "node", "id": "m1", "types": ["Mechanism"], "name": "积分兑换",
      "props": {"mechanism": {"level": 7}}}]
 
+# 同一节点补 direction：语义义务已履行，真包规则不再报（schema 上 direction
+# 刻意 optional——形状归 schema、语义归 hooks 的分工实证）
+_DIRECTED_CHANGES = [
+    {"fact": "node", "id": "n1", "types": ["Character"], "name": "林晚",
+     "props": {"flow_rank_track": {"current_rank": 480000,
+                                   "direction": "descending"}}}]
 
-def test_hook_rule_runs_in_same_engine(api):                       # TC-EX-04
-    base = api._root / "extensions"
-    _write_pack(base, hooks=HOOKS_OK)
+
+def test_pack_rule_runs_in_same_engine(api):                       # TC-EX-04
+    _copy_pack(api._root / "extensions")
     _seed_mechanism(api._conn, level=3)
 
     pre = wiring.analyze(api._conn, _MIXED_CHANGES, "full")
     pre_rules = {v["rule"] for v in pre}
-    # 挂载前 hook 规则缺席（引擎规则是进程级全局，其他测试的残留规则不保证清空，
+    # 挂载前真包规则缺席（引擎规则是进程级全局，其他测试的残留规则不保证清空，
     # 故只做成员断言不做全集相等）
     assert "contradiction" in pre_rules
-    assert "power_needs_realm" not in pre_rules
+    assert "flow_rank_track_direction_required" not in pre_rules
 
-    res = api.mount_extension("wuxia")
+    res = api.mount_extension("infinite-flow")
     assert res["warnings"] == []
-    assert "power_needs_realm" in engine._RULES
+    assert "flow_rank_track_direction_required" in engine._RULES
 
     post = wiring.analyze(api._conn, _MIXED_CHANGES, "full")
-    assert {"contradiction", "power_needs_realm"} <= {
+    assert {"contradiction", "flow_rank_track_direction_required"} <= {
         v["rule"] for v in post}       # 同引擎混跑：两类 Violation 并存互不影响
-    hit = next(v for v in post if v["rule"] == "power_needs_realm")
-    assert hit["message"] == "战力>0 必须给出境界"
+    hit = next(v for v in post
+               if v["rule"] == "flow_rank_track_direction_required")
+    assert hit["level"] == "major"
+    assert hit["message"] == "排名轨迹写入须附轨迹方向 direction"
+    assert hit["refs"] == ["n1"]       # R2：refs 含节点 id
+
+    after = wiring.analyze(api._conn, _DIRECTED_CHANGES, "full")
+    assert "flow_rank_track_direction_required" not in {
+        v["rule"] for v in after}      # 补 direction 后无
 
 
 @pytest.mark.parametrize(

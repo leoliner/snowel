@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from snowel_core.api import SnowelAPI
+from snowel_core.consistency import engine
 from snowel_core.extensions import discovery, mounting
 from snowel_core.ontology import groups
 from snowel_core.storage import db, events, projector
@@ -40,19 +41,35 @@ def write_pack(base: Path, name: str, payload) -> Path:
     return d
 
 
+# 真包（R3 主锚）：tests/extensions → tests → 仓库根
+PACK_DIR = Path(__file__).parents[2] / "extensions" / "infinite-flow"
+
+
+def _copy_pack(base: Path) -> Path:
+    """真包只读 copytree 到 tmp 项目 extensions/（R3：绝不原地挂载仓库目录、
+    不直连仓库路径做挂载测试），随后按包名挂载。"""
+    d = base / "infinite-flow"
+    shutil.copytree(PACK_DIR, d)
+    return d
+
+
 @pytest.fixture(autouse=True)
 def _isolated_ext_env(tmp_path, monkeypatch):
     """钉死家目录（discover 总会扫全局 ~/.snowel，不能依赖本机真家目录）、
-    清空警告池；teardown 清掉测试注册的扩展组（进程态注册表全局共享，
-    只保内置 core 组），规则引擎 T2 阶段无 hooks 注册无需清理。"""
+    清空警告池；teardown 清掉测试注册的进程态共享注册表：组只保内置 core
+    组，引擎规则差分回退——真包挂载会注册 flow_rank_track_direction_required
+    （Step 3 前 T2 阶段无 hooks 注册故只清组，真包化后必须一并清）。"""
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     discovery.drain_warnings()
+    known_rules = set(engine._RULES)
     yield
     for name in [n for n in groups._registered if n != "core"]:
         groups.unregister(name)
+    for n in set(engine._RULES) - known_rules:
+        engine.unregister(n)
     discovery.drain_warnings()
 
 
@@ -77,28 +94,46 @@ def _mount_pack(api) -> Path:
 
 
 def test_mount_midway_does_not_touch_existing_nodes(api):  # TC-EX-02
-    _mount_pack(api)
+    # 存量节点两枚：纯杂项 props 一枚、挂载前已手写 flow_rank_track 形状裸
+    # 数据一枚（unmanaged 落库；不写 _schema——版本对账归挂载侧 digest 管）
     _confirm(api, [{"fact": "node", "id": "n1", "types": ["Character"],
-                    "name": "老侠客", "props": {"combat": {"realm": "元婴",
-                                                           "_schema": "combat@999"}}}])
-    before = json.loads(api.get_node("n1")["props"])
+                    "name": "老侠客", "props": {"note": "无关字段"}}])
+    _confirm(api, [{"fact": "node", "id": "n2", "types": ["Character"],
+                    "name": "林晚", "props": {"flow_rank_track":
+                                              {"current_rank": 480000}}}])
+    before1 = json.loads(api.get_node("n1")["props"])
+    before2 = json.loads(api.get_node("n2")["props"])
 
-    result = api.mount_extension("wuxia")
+    _copy_pack(api._root / "extensions")
+    result = api.mount_extension("infinite-flow")
     assert isinstance(result["warnings"], list)
-    # 中途挂载零回溯：既有节点 props 原样、active 不受影响
-    assert json.loads(api.get_node("n1")["props"]) == before
+    # 中途挂载零回溯：既有节点 props 原样（含已占用未来组键者）、active 不受影响
+    assert json.loads(api.get_node("n1")["props"]) == before1
+    assert json.loads(api.get_node("n2")["props"]) == before2
 
-    # managed 生效：合法数据四态校验 ok（版本串声明与摘要派生版一致）
-    status, warn = groups.validate("combat", {"realm": "炼气"})
-    assert (status, warn) == ("ok", None)
+    # managed 生效：真包四组按林晚示例形状写入，validate 全部落 ok 态
+    for gname, data in {
+            "flow_space_seniority": {"entered_at": "首夜", "cycles": 17,
+                                     "status": "active"},
+            "flow_rank_track": {"current_rank": 480000, "peak_rank": 10000,
+                                "direction": "descending"},
+            "flow_abilities": {"abilities": ["时滞"],
+                               "source": "排名入前 1 万副本奖励"},
+            "flow_blindspot": {"description": "已死过一次",
+                               "exploited": True}}.items():
+        assert groups.validate(gname, data) == ("ok", None)
     # 约束真的编译进了模型：required 缺失与越 enum 取值都 invalid
-    assert groups.validate("combat", {"title": "abc"})[0] == "invalid"
-    assert groups.validate("combat", {"realm": "化神"})[0] == "invalid"
+    assert groups.validate(
+        "flow_rank_track", {"peak_rank": 10000})[0] == "invalid"
+    assert groups.validate("flow_space_seniority", {
+        "entered_at": "首夜", "status": "retired"})[0] == "invalid"
     # extract 校验链视角：组字段不再是 unmanaged 警告
     from snowel_core.writeback.extract import _validate_groups
-    assert _validate_groups({"props": {"combat": {"realm": "炼气"}}}) == []
+    assert _validate_groups({"props": {"flow_rank_track": {
+        "current_rank": 1, "direction": "held"}}}) == []
 
-    entry = next(e for e in api.list_extensions() if e["name"] == "wuxia")
+    entry = next(e for e in api.list_extensions()
+                 if e["name"] == "infinite-flow")
     assert entry["scope"] == "project" and entry["mounted"] is True
 
 
@@ -120,39 +155,45 @@ def test_mount_group_model_build_failure_rejected_cleanly(api, monkeypatch):
 
 
 def test_unmount_blocked_by_active_reference(api):  # TC-EX-03
-    _mount_pack(api)
-    api.mount_extension("wuxia")
+    _copy_pack(api._root / "extensions")
+    api.mount_extension("infinite-flow")
     _confirm(api, [{"fact": "node", "id": "n-ref", "types": ["Character"],
-                    "name": "剑修", "props": {"combat": {"realm": "金丹"}}}])
+                    "name": "林晚", "props": {"flow_space_seniority":
+                                              {"entered_at": "首夜"}}}])
     n_before = api._conn.execute("SELECT COUNT(*) c FROM events").fetchone()["c"]
 
     with pytest.raises(ValueError, match="n-ref"):
-        api.unmount_extension("wuxia")
+        api.unmount_extension("infinite-flow")
     # 事务前拒绝：不留半事件，状态仍 mounted
     assert api._conn.execute(
         "SELECT COUNT(*) c FROM events").fetchone()["c"] == n_before
     assert api._conn.execute(
-        "SELECT status FROM extensions WHERE name='wuxia'"
+        "SELECT status FROM extensions WHERE name='infinite-flow'"
     ).fetchone()["status"] == "mounted"
 
 
 def test_unmount_after_data_cleared_downgrades_to_unmanaged(api):
-    _mount_pack(api)
-    api.mount_extension("wuxia")
+    _copy_pack(api._root / "extensions")
+    api.mount_extension("infinite-flow")
     _confirm(api, [{"fact": "node", "id": "n-ref", "types": ["Character"],
-                    "name": "剑修", "props": {"combat": {"realm": "金丹"}}}])
+                    "name": "林晚", "props": {"flow_space_seniority":
+                                              {"entered_at": "首夜",
+                                               "status": "active"}}}])
     _retract_node(api, "n-ref")
 
-    api.unmount_extension("wuxia")
+    api.unmount_extension("infinite-flow")
     rows = api._conn.execute(
         "SELECT seq FROM events WHERE kind='extension_unmounted'").fetchall()
     assert len(rows) == 1                      # 恰一条卸载事件
     p = json.loads(api.get_node("n-ref", active_only=False)["props"])
-    assert p["combat"] == {"realm": "金丹"}     # 数据保留原样
+    assert p["flow_space_seniority"] == {"entered_at": "首夜",
+                                         "status": "active"}  # 数据保留原样
     # 回落 unmanaged：非法取值不再报 invalid（根本不校验了）
-    assert groups.validate("combat", {"realm": "化神"})[0] == "unmanaged"
+    assert groups.validate("flow_space_seniority", {
+        "entered_at": "首夜", "status": "retired"})[0] == "unmanaged"
     from snowel_core.writeback.extract import _validate_groups
-    warns = _validate_groups({"props": {"combat": {"realm": "化神"}}})
+    warns = _validate_groups({"props": {"flow_space_seniority": {
+        "entered_at": "首夜", "status": "retired"}}})
     assert any("unmanaged" in w for w in warns)
 
 
