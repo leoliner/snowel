@@ -177,6 +177,32 @@ def web(project: ProjectOpt = None,
     uvicorn.run(create_app(p), host=host, port=port)
 
 
+@app.command()
+def mcp(project: ProjectOpt = None,
+        http: Annotated[bool, typer.Option(
+            "--http", help="启用 streamable HTTP 传输（默认 stdio）")] = False,
+        host: Annotated[str, typer.Option(
+            "--host", help="监听地址（默认 127.0.0.1）")] = "127.0.0.1",
+        port: Annotated[int, typer.Option(
+            "--port", help="监听端口（默认 8642）")] = 8642,
+        token: Annotated[Optional[str], typer.Option(
+            "--token", help="Bearer token（--http 时可选，绑 0.0.0.0/:: 必填）")] = None,
+        ) -> None:
+    """启动 MCP server（stdio 薄壳；--http 切 streamable HTTP，R4/TC-SH-12）。"""
+    # 启动守卫（R4）：绑通配地址必须显式 token，否则拒绝启动
+    if http and token is None and host in ("0.0.0.0", "::"):
+        typer.secho(
+            "绑定 0.0.0.0/:: 必须通过 --token 提供 Bearer token"
+            "（拒绝无鉴权全网卡监听）",
+            err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    from snowel import mcp_server
+
+    # 项目解析交 main 内部（resolve_project_path），与 stdio 直跑语义一致
+    mcp_server.main(project=_resolve(project), http=http, host=host,
+                    port=port, token=token)
+
+
 @ext_app.command("list")
 def ext_list(project: ProjectOpt = None) -> None:
     """列出扩展包：发现全集 × 挂载态 × 项目覆盖标记（TC-EX-01 出口）。"""
