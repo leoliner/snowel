@@ -20,6 +20,7 @@ import ChatSidebar from './components/ChatSidebar'
 import VizPanel from './components/VizPanel'
 import type { WorkspaceTab } from './components/VizPanel'
 import ManualModal from './components/ManualModal'
+import Tour, { TOUR_STORAGE_KEY } from './components/Tour'
 import { MANUAL_LABELS } from './components/labels'
 
 function Skeleton({ className = 'h-4' }: { className?: string }) {
@@ -38,6 +39,9 @@ export default function App() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('proposals')
   // T2（TC-SH-13 / R3）：手册弹窗，顶栏"？"常驻入口
   const [manualOpen, setManualOpen] = useState(false)
+  // T3（TC-SH-14 / R4）：tour 重启信号——欢迎卡显隐与记忆键在 Tour 内部管理，
+  // 手册"重看导览"按钮 = 清键（下方接线处）+ 递增本信号（Tour 收到即从第 1 步运行）
+  const [tourRunSignal, setTourRunSignal] = useState(0)
 
   const data = session.data
   const readonly = data?.readonly ?? false
@@ -94,8 +98,8 @@ export default function App() {
         </div>
       )}
 
-      {/* 三栏主体（§3）：左 240px / 中 flex（min 480px）/ 右 380px */}
-      <main className="flex min-h-0 flex-1">
+      {/* 三栏主体（§3）：左 240px / 中 flex（min 480px）/ 右 380px；testid 供 tour 第 1 步高亮定位 */}
+      <main data-testid="app-main" className="flex min-h-0 flex-1">
         {/* 左栏：流程树容器（T10） */}
         <aside
           data-testid="col-flow"
@@ -219,8 +223,19 @@ export default function App() {
         </aside>
       </main>
 
-      {/* T2（TC-SH-13 / R3）：手册弹窗挂根部（内部 open=false 返 null） */}
-      <ManualModal open={manualOpen} onClose={() => setManualOpen(false)} />
+      {/* T2（TC-SH-13 / R3）：手册弹窗挂根部（内部 open=false 返 null）；
+          T3（TC-SH-14 / R4）："重看操作导览"= 清键 + 关弹窗 + 递增 tour 重启信号 */}
+      <ManualModal
+        open={manualOpen}
+        onClose={() => setManualOpen(false)}
+        onRestartTour={() => {
+          localStorage.removeItem(TOUR_STORAGE_KEY)
+          setManualOpen(false)
+          setTourRunSignal((n) => n + 1)
+        }}
+      />
+      {/* T3（TC-SH-14 / R2）：操作指引 tour 挂根部（内部 idle 返 null） */}
+      <Tour runSignal={tourRunSignal} />
     </div>
   )
 }

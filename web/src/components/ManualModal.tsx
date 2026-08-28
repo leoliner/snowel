@@ -10,6 +10,8 @@ import { MANUAL_LABELS } from './labels'
 interface ManualModalProps {
   open: boolean
   onClose: () => void
+  // T3（TC-SH-14 / R4）：底部"重看操作导览"——传入才渲染按钮，接线由 App 负责
+  onRestartTour?: () => void
 }
 
 interface ManualChapter {
@@ -33,7 +35,7 @@ const CHAPTERS: ManualChapter[] = Object.entries(sources)
     return { slug, title: content.match(/^##\s+(.+)$/m)?.[1]?.trim() ?? slug, content }
   })
 
-export default function ManualModal({ open, onClose }: ManualModalProps) {
+export default function ManualModal({ open, onClose, onRestartTour }: ManualModalProps) {
   const [query, setQuery] = useState('')
   const [activeSlug, setActiveSlug] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -141,6 +143,20 @@ export default function ManualModal({ open, onClose }: ManualModalProps) {
             ))}
           </div>
         </div>
+
+        {/* 底部：重看操作导览（T3 / R4——清键与启动在 App/Tour 侧接线） */}
+        {onRestartTour && (
+          <div className="flex shrink-0 justify-end border-t border-border px-3 py-2">
+            <button
+              type="button"
+              data-testid="manual-restart-tour"
+              onClick={onRestartTour}
+              className="rounded-btn border border-border bg-raised px-3 py-1 text-sm text-primary hover:bg-border"
+            >
+              {MANUAL_LABELS.restartTour}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

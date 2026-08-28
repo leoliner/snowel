@@ -376,7 +376,11 @@ function ProposalPanelInner({ proposalId, readonly, onMutated }: {
 export default function ProposalPanel({ proposalId, readonly = false, onMutated }: ProposalPanelProps) {
   if (!proposalId) {
     return (
-      <div className="rounded-card border border-border bg-raised/40 px-3 py-4 text-center text-sm text-muted">
+      // 空态同挂 proposal-panel testid：tour 第 4 步高亮目标在未选中提案时也存在
+      <div
+        data-testid="proposal-panel"
+        className="rounded-card border border-border bg-raised/40 px-3 py-4 text-center text-sm text-muted"
+      >
         在列表中选择提案查看详情
       </div>
     )

@@ -66,4 +66,56 @@ export const MANUAL_LABELS = {
   toc: '手册目录',
   empty: '没有匹配的章节',
   close: '关闭手册',
+  restartTour: '重看操作导览',
 } as const
+
+// 操作指引 tour（TC-SH-14 / R2+R4+R7）：欢迎卡与气泡按钮词 + 六步定稿文案。
+// 六步含 target testid（Tour.tsx 在 document 里查元素做高亮，缺失时气泡兜底定位）；
+// 第 5/6 步文案按 R7 提及 readonly / 保存与租约要点。
+export const TOUR_LABELS = {
+  welcomeTitle: '欢迎来到 Snowel',
+  welcomeBody: '用 1 分钟走一遍三栏工作台，随时可在"？"手册里重新开始导览。',
+  start: '开始导览',
+  skip: '跳过',
+  prev: '上一步',
+  next: '下一步',
+  exit: '退出',
+  finish: '完成',
+} as const
+
+export const TOUR_STEPS: readonly {
+  testid: string
+  title: string
+  body: string
+}[] = [
+  {
+    testid: 'app-main',
+    title: '三栏布局',
+    body: '左侧流程树、中间正文、右侧工作区与聊天——整个创作台就是这三块。',
+  },
+  {
+    testid: 'col-flow',
+    title: '流程树',
+    body: '雪花五层流程的进度与待办都在这里；点击章节点，中间与右栏会跟着联动选中。',
+  },
+  {
+    testid: 'generate-form',
+    title: '生成表单',
+    body: '从选中的节点发起生成：七类 artifact 任选，也可以从灵感原话派生生成。',
+  },
+  {
+    testid: 'proposal-panel',
+    title: '提案确认',
+    body: '生成结果先入提案队列；这个结构化面板是唯一确认口——确认 / 否决 / 改写都在这里完成。',
+  },
+  {
+    testid: 'prose-editor',
+    title: '正文编辑',
+    body: '确认后的正文在此编辑润色；注意及时保存。只读（readonly）会话下仅可浏览不可改动。',
+  },
+  {
+    testid: 'chat-sidebar',
+    title: '聊天侧栏',
+    body: '与 AI 对话即可发起生成或检索；写租约被其他端持有时本端降级只读，待心跳续租收回后再写。',
+  },
+] as const
