@@ -1,9 +1,11 @@
 // 领域术语中文标签（单处维护，组件共用）：雪花七层 + 提案 kind + 灵感面板
-import type { LayerKind, ProposalKind } from '../types'
+import type { FlowLayer, LayerKind, ProposalKind } from '../types'
 
+// 生成环 artifact_type 选项序（flow/registry.py ARTIFACTS 键——scene 单数，
+// 执行-6 carry：原复数 'scenes' 被 core 拒为"未知产物类型"）
 export const LAYERS: LayerKind[] = [
   'premise', 'synopsis', 'summary', 'beat_sheet',
-  'characters', 'scenes', 'prose',
+  'characters', 'scene', 'prose',
 ]
 
 export const LAYER_LABELS: Record<LayerKind, string> = {
@@ -12,9 +14,15 @@ export const LAYER_LABELS: Record<LayerKind, string> = {
   summary: '摘要',
   beat_sheet: '节拍表',
   characters: '角色',
-  scenes: '场景',
+  scene: '场景',
   prose: '正文',
 }
+
+// 流程进度查表换算（flow/state.py LAYERS wire 键是复数 scenes——层名与
+// ARTIFACTS 不一致处；展示序/文案共用 LAYERS/LAYER_LABELS，进度 done/current
+// 比对经此函数对上 wire 键，FlowTree 消费）
+export const toFlowLayer = (layer: LayerKind): FlowLayer =>
+  layer === 'scene' ? 'scenes' : layer
 
 // 生成环 artifact_type 与 LAYERS 同构（generate.py ARTIFACTS 键）
 export const ARTIFACT_LABELS = LAYER_LABELS

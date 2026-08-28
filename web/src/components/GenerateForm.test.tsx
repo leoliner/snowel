@@ -39,6 +39,16 @@ describe('GenerateForm（右栏工作区表单，E3 生成环）', () => {
     expect(onGenerated).toHaveBeenCalledWith('np1')
   })
 
+  it('场景选项提交 ARTIFACTS 单数 scene 键（执行-6 carry：修后选"场景"生成能被 core 接受）', async () => {
+    mockPost.mockResolvedValue({ proposal_id: 'np1' })
+    render(<GenerateForm onGenerated={() => {}} />)
+    fireEvent.change(screen.getByLabelText('生成类型'), { target: { value: 'scene' } })
+    fireEvent.click(screen.getByRole('button', { name: '生成提案' }))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/api/generate', { artifact_type: 'scene' })
+    })
+  })
+
   it('locate 非法 JSON → 内联错误，不提交', () => {
     mockPost.mockResolvedValue({ proposal_id: 'np1' })
     render(<GenerateForm onGenerated={() => {}} />)
@@ -96,6 +106,14 @@ describe('GenerateForm 灵感多选 derive 联动（TC-SH-09 / R4）', () => {
     render(<GenerateForm onGenerated={() => {}} />)
     expect(screen.getByText('从灵感发起生成')).toBeInTheDocument()
     expect(screen.getAllByTestId('derive-chip')).toHaveLength(2)
+  })
+
+  it('chips 容器 role=group + aria-label（SH-③ a11y）', () => {
+    mockInspirationData()
+    render(<GenerateForm onGenerated={() => {}} />)
+    expect(
+      screen.getByRole('group', { name: '从灵感发起生成' }),
+    ).toBeInTheDocument()
   })
 
   it('无灵感数据 → derive 小节整体不渲染', () => {

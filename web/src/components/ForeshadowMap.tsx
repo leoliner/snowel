@@ -5,10 +5,11 @@
 import { useApi } from '../api'
 import type { ForeshadowItem, ForeshadowStatsResponse } from '../types'
 
-const W = 320
+// 画布几何常量：W/DOT_R 导出供 Viz.test 断言复用（minor 池：测试常量与组件解耦）
+export const W = 320
 const LABEL_W = 72
 const ROW_H = 22
-const DOT_R = 3.5
+export const DOT_R = 3.5
 const BAR_H = 8
 
 export default function ForeshadowMap() {

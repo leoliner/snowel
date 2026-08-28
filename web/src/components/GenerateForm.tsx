@@ -107,7 +107,8 @@ export default function GenerateForm({
       {inspirations.length > 0 && (
         <div className="flex flex-col gap-1">
           <div className="text-xs text-muted">{INSPIRATION_LABELS.derive}</div>
-          <div className="flex flex-wrap gap-1">
+          {/* SH-③：chips 组语义化（多选组 role=group + labels 取词 aria-label） */}
+          <div role="group" aria-label={INSPIRATION_LABELS.derive} className="flex flex-wrap gap-1">
             {inspirations.map((item) => {
               const active = selectedIds.includes(item.id)
               return (

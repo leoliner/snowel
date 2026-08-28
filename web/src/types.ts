@@ -1,7 +1,18 @@
 // 与后端响应一比一的类型面（web_server.py + core api 门面）
 
-// 雪花七层（flow/state.py LAYERS）
+// 生成环 artifact_type（flow/registry.py ARTIFACTS 键——scene 单数）
 export type LayerKind =
+  | 'premise'
+  | 'synopsis'
+  | 'summary'
+  | 'beat_sheet'
+  | 'characters'
+  | 'scene'
+  | 'prose'
+
+// 流程进度层（flow/state.py LAYERS wire 键——scenes 复数，与 ARTIFACTS
+// 单数 scene 不一致处；进度显示经 labels.toFlowLayer 换算）
+export type FlowLayer =
   | 'premise'
   | 'synopsis'
   | 'summary'
@@ -23,8 +34,8 @@ export interface Volume {
 
 // GET /api/session → flow 字段（flow_state()）
 export interface FlowState {
-  layers: Record<LayerKind, 'done' | 'todo'>
-  current_layer: LayerKind | null
+  layers: Record<FlowLayer, 'done' | 'todo'>
+  current_layer: FlowLayer | null
   volumes: Volume[]
 }
 
