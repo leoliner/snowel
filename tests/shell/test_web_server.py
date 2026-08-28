@@ -1002,16 +1002,17 @@ async def test_beat_merge_delete_endpoints(project):
     app = create_app(str(project))
     async with AsyncClient(transport=ASGITransport(app=app),
                            base_url="http://t") as c:
-        # merge：伏笔引用随迁，moved 为事件 seq
+        # merge：伏笔引用随迁，event_seq 为事件 seq（R5：两壳同形状）
         r = await c.post("/api/beats/merge",
                          json={"source": "mb1", "target": "mb2"})
         assert r.status_code == 200
         assert r.json()["merged"] is True
-        assert isinstance(r.json()["moved"], int)
-        # delete 空拍（无伏笔引用）成功，reason 可选透传
+        assert isinstance(r.json()["event_seq"], int)
+        # delete 空拍（无伏笔引用）成功，reason 可选透传；补 event_seq（R5）
         r2 = await c.post("/api/beats/delete",
                           json={"beat_id": "mb3", "reason": "多余"})
-        assert r2.status_code == 200 and r2.json() == {"deleted": True}
+        assert r2.status_code == 200 and r2.json()["deleted"] is True
+        assert isinstance(r2.json()["event_seq"], int)
         # delete 被 planted_at 引用拍（merge 后 f1 已随迁 mb2）→ 400 拒绝文案
         r3 = await c.post("/api/beats/delete", json={"beat_id": "mb2"})
         assert r3.status_code == 400
