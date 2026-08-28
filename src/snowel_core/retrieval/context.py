@@ -73,9 +73,11 @@ def compose_context(conn: sqlite3.Connection, strategy: str,
         sections.append(_node_section("character", [row] if row else []))
         sections.append(_node_section(
             "relations", [p for p in peers if p is not None]))
+    rewrite = None
     q = locate.get("query") or locate.get("chapter") or ""
     if q:
         fallback = hybrid.search(conn, q, mode="hybrid")
+        rewrite = fallback.pop("rewrite", None)  # R2：并入既有审计行，不新增 search 行
         kept = [n for n in fallback["nodes"] if not _todo(conn, n["node_id"])]
         if kept or fallback["paragraphs"]:  # TODO 命中不进 section（refs 与 text 均排除）
             sections.append({"kind": "fallback_recall",
@@ -83,6 +85,8 @@ def compose_context(conn: sqlite3.Connection, strategy: str,
                              "text": json.dumps({**fallback, "nodes": kept},
                                                 ensure_ascii=False)})
     bundle = {"strategy": strategy, "locate": locate, "sections": sections}
+    if rewrite is not None:
+        bundle["rewrite"] = rewrite
     bundle["audit_id"] = audit.record(conn, strategy, locate, dry_run, bundle)
     return bundle
 
