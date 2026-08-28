@@ -518,6 +518,31 @@ class SnowelAPI:
             projector.apply(conn)
         return seq
 
+    # 拍列表只读面（R1/TC-SH-10 数据面）：仿 inspirations() 内联 SQL
+    def beats_of(self, chapter_id: str) -> list[dict]:
+        """章内拍列表：[{"id", "name", "story_order"}]，story_order 稳定序。
+
+        归属判定不能只看章号——编号跨卷不唯一（stats_pacing 同口径），按
+        (address.volume, address.chapter) 双键匹配章节节点自身地址；错传拍 id
+        时其地址也含同号章号，双键拦不住，故显式校验 Chapter 类型。
+        """
+        row = self._conn.execute(
+            "SELECT types, props FROM nodes WHERE id=?", (chapter_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"章节节点不存在: {chapter_id}")
+        if "Chapter" not in json.loads(row["types"]):
+            raise ValueError(f"节点 {chapter_id} 不是 Chapter 节点")
+        addr = json.loads(row["props"]).get("address") or {}
+        return [{"id": r["id"], "name": r["name"],
+                 "story_order": r["story_order"]}
+                for r in self._conn.execute(
+                    """SELECT id, name, story_order FROM nodes
+                       WHERE active=1 AND types LIKE '%"MicroBeat"%'
+                         AND json_extract(props, '$.address.volume') = ?
+                         AND json_extract(props, '$.address.chapter') = ?
+                       ORDER BY story_order""",
+                    (addr.get("volume"), addr.get("chapter")))]
+
     # 扩展包管理（addendum §3.1）：门面转发 mounting 模块（领域编排留 core）
     def mount_extension(self, name: str) -> dict:
         """挂载扩展包（R5）：返回 {"warnings": [...]}——建议性跳过字段警告
