@@ -37,6 +37,8 @@ Snowel 是一款本地单机的 AI 小说创作辅助工具，面向百万字级
 - **回写环**：正文文件为真相源，抽取入典、镜像对账、作者外部编辑自动检测
 - **混合检索**：图谱精确拉取为主，FTS5 + 向量兜底，写前上下文组装全程审计
 
+> 题材扩展包（extension pack）：自定义属性组与级联规则的注入机制，制作规范见 [extensions/SKILL.md](extensions/SKILL.md)，预制范例见 [extensions/infinite-flow/](extensions/infinite-flow/)。
+
 ## 总体架构
 
 ```mermaid
