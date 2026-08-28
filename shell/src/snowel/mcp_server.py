@@ -24,7 +24,20 @@ ADVANCED_CATALOG: dict[str, dict] = {
              "desc": "封卷（C7 冻结线，seal action）"},
     "retcon": {"wired": True, "via": "snowel_writeback",
                "desc": "显式 retcon（C7 合法通道，retcon action）"},
-    "extension_packs": {"wired": False, "planned_in": "E4 目录式发现"},
+    "inspiration_save": {"wired": True,
+                         "desc": "保存灵感原话（api.save_inspiration）",
+                         "params": {"text": "灵感原话全文，空/纯空白拒绝"}},
+    "inspiration_list": {"wired": True,
+                         "desc": "灵感列表（api.inspirations，只读）"},
+    "beat_merge": {"wired": True,
+                   "desc": "合并两拍，伏笔引用与边有效期随迁（api.merge_beats）",
+                   "params": {"source": "源拍 id", "target": "承接拍 id"}},
+    "beat_delete": {"wired": True,
+                    "desc": "删除拍，被伏笔引用则拒绝（api.delete_beat）",
+                    "params": {"beat_id": "拍 id", "reason": "可选删除原因"}},
+    "extension_packs": {"wired": False,
+                        "planned_in": "仅 CLI 管理（snowel ext）；"
+                                      "不做 Web/MCP 面（裁决 6）"},
     "audit": {"wired": True, "desc": "最近 N 条检索上下文审计（retrieval_audit）"},
 }
 
@@ -183,8 +196,10 @@ def build_mcp(ctx: ProjectContext, backend=None) -> FastMCP:
             "/seal/retcon/foreshadow）")
 
     @mcp.tool()
-    def snowel_advanced(op: str | None = None) -> dict:
-        """长尾入口：无参返回操作目录；已接线子操作直接路由。"""
+    def snowel_advanced(op: str | None = None,
+                        params: dict | None = None) -> dict:
+        """长尾入口：无参返回操作目录；已接线子操作经 params 传参直接路由。"""
+        p = params or {}
         if op is None:
             return {"operations": ADVANCED_CATALOG}
         if op == "rebuild":
@@ -193,6 +208,22 @@ def build_mcp(ctx: ProjectContext, backend=None) -> FastMCP:
             return {"rebuilt": True}
         if op == "audit":
             return {"result": ctx.api.audit_recent()}
+        if op == "inspiration_save":
+            ctx.require_write()
+            return {"wired": True,
+                    "inspiration_id": ctx.api.save_inspiration(p["text"])}
+        if op == "inspiration_list":
+            return {"wired": True, "result": ctx.api.inspirations()}
+        if op == "beat_merge":
+            ctx.require_write()
+            return {"wired": True,
+                    "event_seq": ctx.api.merge_beats(p["source"],
+                                                     p["target"])}
+        if op == "beat_delete":
+            ctx.require_write()
+            return {"wired": True,
+                    "event_seq": ctx.api.delete_beat(p["beat_id"],
+                                                     reason=p.get("reason"))}
         if op in ADVANCED_CATALOG:
             entry = ADVANCED_CATALOG[op]
             if entry.get("via"):
