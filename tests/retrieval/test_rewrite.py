@@ -22,9 +22,18 @@ def _seed(conn, extra=()):
         *extra])
 
 
+def _rearm_rewrite_on(conn):
+    """conftest 预置关闭（套件封闭性）后的回锚：删键还原"未 set"态断言生产
+    默认开（TC-RT-07 裁决 9 不因测试预置失锚），再显式置 True 不依赖预置顺序。"""
+    conn.execute("DELETE FROM config WHERE key='retrieval.rewrite'")
+    assert config.get(conn, "retrieval.rewrite", True) is True
+    config.set(conn, "retrieval.rewrite", True)
+
+
 def test_rewrite_changes_search_terms_visible_in_audit(api, monkeypatch):
     # 前半：改写生效——以改写词命中（原词本不命中），检索词变化可见于
     # strategy="search" 条件审计行（original→rewritten）
+    _rearm_rewrite_on(api._conn)
     _seed(api._conn)
     fake = FakeBackend(["轮回"])
     monkeypatch.setattr("snowel_core.llm.ports.get_backend", lambda conn: fake)
@@ -44,6 +53,7 @@ def test_rewrite_changes_search_terms_visible_in_audit(api, monkeypatch):
 
 def test_rewrite_failure_falls_back_with_marker(api, monkeypatch):
     # 中段：改写 LLM 失败——回落原词检索（结果仍出）+ rewrite_failed 标记
+    _rearm_rewrite_on(api._conn)
     _seed(api._conn, extra=[
         {"fact": "node", "id": "h1", "types": ["Character"], "name": "林晚",
          "props": {}}])
@@ -74,6 +84,7 @@ def test_rewrite_disabled_pure_deterministic(api, monkeypatch):
 def test_compose_context_fallback_recalls_rewritten(core_conn, monkeypatch):
     # 入口 B：compose_context 兜底召回以改写词检索；不新增 search 行——
     # 改写明细并入既有 compose 审计行（R2 "天然携带同一 rewrite 键"）
+    _rearm_rewrite_on(core_conn)
     _seed(core_conn)
     fake = FakeBackend(["轮回"])
     monkeypatch.setattr("snowel_core.llm.ports.get_backend", lambda conn: fake)

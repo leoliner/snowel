@@ -7,6 +7,8 @@ from snowel_core.llm import backend, ports
 
 def test_rewrite_query_rewrites_with_backend(core_conn):  # TC-RT-07 桩转正
     from snowel_core.storage import config
+    # conftest 预置关闭（套件封闭性）→ 撤键回到生产默认开
+    core_conn.execute("DELETE FROM config WHERE key='retrieval.rewrite'")
     fake = FakeBackend(["雨夜旧友", "旧队友"])
     assert ports.rewrite_query(core_conn, "那晚的人", {}, backend=fake) \
         == "雨夜旧友"
@@ -26,6 +28,8 @@ def test_rewrite_query_rewrites_with_backend(core_conn):  # TC-RT-07 桩转正
 
 
 def test_rewrite_query_failure_returns_none(core_conn):  # 失败回落信号
+    core_conn.execute("DELETE FROM config WHERE key='retrieval.rewrite'")
+
     class Boom:
         def generate(self, prompt, *, model=None, system=None):
             raise TimeoutError("rewrite timeout")

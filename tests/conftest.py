@@ -3,7 +3,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from snowel_core.storage import db
+from snowel_core.storage import config, db
 
 # L20 测试卫生：create_app 启动的心跳线程是 daemon，且 ASGITransport 不送
 # lifespan 消息（_lifespan 的停止逻辑不触发）→ 线程+sqlite 连接随进程存活至
@@ -80,6 +80,29 @@ def api(tmp_path):
     a = SnowelAPI.init_project(tmp_path / "api")
     yield a
     a.close()
+
+
+@pytest.fixture(autouse=True)
+def _rewrite_off_by_default(monkeypatch):
+    """套件封闭性（TC-RT-07）：retrieval.rewrite 生产默认开，开启时检索热路径
+    经惰性 get_backend 触及真实 litellm——真实 key 下发真调用且结果受改写
+    影响，无 key 时每条检索路径白付一次失败调用。
+
+    注入设计：包 db.migrate 而非 autouse 依赖 core_conn/api——后者的 autouse
+    依赖会强迫每个测试实例化两个用不到的 tmp 库，且罩不住 shell 各测试文件
+    本地 project fixture（直调 SnowelAPI.init_project/open）的独立连接；全部
+    测试库创建路径必经 migrate，一处包裹即全覆盖（调用方均为模块属性访问，
+    无 from-import 直取，setattr 可见）。rewrite 语义测试在
+    tests/retrieval/test_rewrite.py 显式 config.set(True) 回锚（含生产默认值
+    断言）。teardown 不还原：monkeypatch 撤包裹即可，库随 tmp_path 即焚。
+    """
+    orig = db.migrate
+
+    def _migrate_then_rewrite_off(conn):
+        orig(conn)
+        config.set(conn, "retrieval.rewrite", False)
+
+    monkeypatch.setattr(db, "migrate", _migrate_then_rewrite_off)
 
 
 class FakeBackend:
