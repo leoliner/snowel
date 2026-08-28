@@ -134,6 +134,25 @@ async def test_generate_and_search_wired(project):
         assert "result" in s
 
 
+async def test_generate_derive_from_passthrough(project):
+    # §4 矩阵 MCP 侧：generate 带 derive_from（与 Web /api/generate 同款条件透传）
+    api = SnowelAPI.open(project)
+    iid = api.save_inspiration("灵感原话")
+    api.close()
+    async with _connected(project, backend=FakeBackend([
+            json.dumps({"draft": "提炼稿", "facts": [], "appeared": []}),
+            json.dumps({"draft": "普通稿", "facts": [], "appeared": []}),
+    ])) as (ctx, client):
+        g = await _call(client, "snowel_generate", {
+            "artifact_type": "premise", "derive_from": [iid]})
+        g2 = await _call(client, "snowel_generate",
+                         {"artifact_type": "premise"})  # 缺席 → 调用形状同改前
+        p1 = json.loads(ctx.api.proposals.get(g["proposal_id"])["payload"])
+        assert p1["derive_from"] == [iid]   # 来源进载荷（confirm 建 DERIVED_FROM 边）
+        assert "derive_from" not in json.loads(
+            ctx.api.proposals.get(g2["proposal_id"])["payload"])
+
+
 async def test_writeback_actions_wired(project, tmp_path):
     api = SnowelAPI.open(project)
     from snowel_core.writeback import mirror

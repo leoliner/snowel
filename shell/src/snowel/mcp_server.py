@@ -79,10 +79,16 @@ def build_mcp(ctx: ProjectContext, backend=None) -> FastMCP:
     @mcp.tool()
     def snowel_generate(artifact_type: str,
                         locate: dict | None = None,
-                        extra: dict | None = None) -> dict:
+                        extra: dict | None = None,
+                        derive_from: list[str] | None = None) -> dict:
         """创作主力：按产物类型路由对应层 ai_generate（产出必进提案队列）。"""
         ctx.require_write()
-        pid = ctx.api.ai_generate(artifact_type, locate, extra, backend=backend)
+        # derive_from 仅显式为 list 才透传门面（与 Web /api/generate 同款条件；
+        # 缺席调用形状逐参不变）；空列表由 core truthy-gate 挡下，不进载荷
+        kw = ({"derive_from": derive_from}
+              if isinstance(derive_from, list) else {})
+        pid = ctx.api.ai_generate(artifact_type, locate, extra, backend=backend,
+                                  **kw)
         return {"proposal_id": pid}
 
     @mcp.tool()
