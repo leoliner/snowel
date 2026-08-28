@@ -196,6 +196,24 @@ def write_ext(base, payload=EXT_SCHEMA):
     return d
 
 
+# 真包（R3 主锚）：tests/shell → tests → 仓库根
+PACK_DIR = Path(__file__).parents[2] / "extensions" / "infinite-flow"
+
+
+def _copy_pack(base, *, version=None):
+    """真包只读 copytree 到 tmp 侧（R3：绝不原地挂载仓库目录）；version 给定
+    时改写副本 manifest 的 version 字节 → 同名不同 digest（TC-EX-01 全局侧）。"""
+    d = base / "infinite-flow"
+    shutil.copytree(PACK_DIR, d,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    if version is not None:
+        manifest = json.loads((d / "schema.json").read_text(encoding="utf-8"))
+        manifest["version"] = version
+        (d / "schema.json").write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    return d
+
+
 def test_ext_list_shows_project_override_and_mount_state(
         tmp_path, monkeypatch):                                 # TC-EX-01 出口可见
     home = tmp_path / "home"
@@ -204,18 +222,19 @@ def test_ext_list_shows_project_override_and_mount_state(
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     gdir = home / ".snowel" / "extensions"
-    write_ext(gdir, dict(EXT_SCHEMA, version="0.9.0"))   # 全局同名旧版
+    _copy_pack(gdir, version="2.0.0")                    # 全局同名改版
     write_ext(gdir, dict(EXT_SCHEMA, name="xianxia", version="2.0.0"))
     proj = tmp_path / "proj"
     SnowelAPI.init_project(proj)
-    write_ext(proj / "extensions")                       # 项目内覆盖版 0.1.0
-    runner.invoke(app, ["ext", "mount", "wuxia", "-p", str(proj)])
+    _copy_pack(proj / "extensions")                      # 项目内原版 1.0.0
+    runner.invoke(app, ["ext", "mount", "infinite-flow", "-p", str(proj)])
 
     res = runner.invoke(app, ["ext", "list", "-p", str(proj)])
     assert res.exit_code == 0
-    wuxia = next(l for l in res.output.splitlines() if l.startswith("wuxia"))
-    assert "项目" in wuxia and "0.1.0" in wuxia           # 项目覆盖全局生效
-    assert "已挂载" in wuxia and "0.9.0" not in wuxia     # 挂载态可见，旧版不出现
+    flow = next(l for l in res.output.splitlines()
+                if l.startswith("infinite-flow"))
+    assert "项目" in flow and "1.0.0" in flow             # 项目覆盖全局生效
+    assert "已挂载" in flow and "2.0.0" not in flow       # 挂载态可见，改版不出现
     xianxia = next(l for l in res.output.splitlines()
                    if l.startswith("xianxia"))
     assert "全局" in xianxia and "未挂载" in xianxia       # 双位置发现全集
@@ -224,36 +243,39 @@ def test_ext_list_shows_project_override_and_mount_state(
 def test_ext_mount_unmount_lifecycle(tmp_path):
     proj = tmp_path / "proj"
     SnowelAPI.init_project(proj)
-    write_ext(proj / "extensions")
+    _copy_pack(proj / "extensions")
 
     ghost = runner.invoke(app, ["ext", "mount", "ghost", "-p", str(proj)])
     assert ghost.exit_code == 1 and "未找到" in ghost.output
 
-    res = runner.invoke(app, ["ext", "mount", "wuxia", "-p", str(proj)])
+    res = runner.invoke(app, ["ext", "mount", "infinite-flow", "-p", str(proj)])
     assert res.exit_code == 0 and "已挂载" in res.output
     st = runner.invoke(app, ["ext", "status", "-p", str(proj)])
     assert st.exit_code == 0
-    assert "wuxia" in st.output and "正常" in st.output
+    assert "infinite-flow" in st.output and "正常" in st.output
 
-    res2 = runner.invoke(app, ["ext", "unmount", "wuxia", "-p", str(proj)])
+    res2 = runner.invoke(app,
+                         ["ext", "unmount", "infinite-flow", "-p", str(proj)])
     assert res2.exit_code == 0 and "已卸载" in res2.output
-    again = runner.invoke(app, ["ext", "unmount", "wuxia", "-p", str(proj)])
+    again = runner.invoke(app,
+                          ["ext", "unmount", "infinite-flow", "-p", str(proj)])
     assert again.exit_code == 1 and "未挂载" in again.output
 
 
 def test_ext_unmount_refusal_shows_reason(tmp_path):        # TC-EX-03 呈现面
     proj = tmp_path / "proj"
     SnowelAPI.init_project(proj)
-    write_ext(proj / "extensions")
+    _copy_pack(proj / "extensions")
     api = SnowelAPI.open(proj)
-    api.mount_extension("wuxia")
+    api.mount_extension("infinite-flow")
     pid = api.proposals.create("t", {"facts": [
-        {"fact": "node", "id": "n-ref", "types": ["Character"], "name": "剑修",
-         "props": {"combat": {"realm": "金丹"}}}]})
+        {"fact": "node", "id": "n-ref", "types": ["Character"], "name": "林晚",
+         "props": {"flow_space_seniority": {"entered_at": "首夜"}}}]})
     api.confirm(pid)
     api.close()
 
-    res = runner.invoke(app, ["ext", "unmount", "wuxia", "-p", str(proj)])
+    res = runner.invoke(app,
+                        ["ext", "unmount", "infinite-flow", "-p", str(proj)])
     assert res.exit_code == 1
     assert "n-ref" in res.output and "引用" in res.output   # 拒绝原因完整呈现
 

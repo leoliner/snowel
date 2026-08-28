@@ -1,0 +1,40 @@
+{
+  "name": "infinite-flow",
+  "version": "1.0.0",
+  "groups": {
+    "flow_space_seniority": {
+      "type": "object",
+      "properties": {
+        "entered_at": {"type": "string"},
+        "cycles": {"type": "integer"},
+        "status": {"type": "string", "enum": ["active", "escaped", "lost", "deceased"]}
+      },
+      "required": ["entered_at"]
+    },
+    "flow_rank_track": {
+      "type": "object",
+      "properties": {
+        "current_rank": {"type": "integer"},
+        "peak_rank": {"type": "integer"},
+        "direction": {"type": "string", "enum": ["ascending", "descending", "volatile", "held"]}
+      },
+      "required": ["current_rank"]
+    },
+    "flow_abilities": {
+      "type": "object",
+      "properties": {
+        "abilities": {"type": "array", "items": {"type": "string"}},
+        "source": {"type": "string"}
+      },
+      "required": ["abilities"]
+    },
+    "flow_blindspot": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string", "pattern": "^.+"},
+        "exploited": {"type": "boolean"}
+      },
+      "required": ["description"]
+    }
+  }
+}
