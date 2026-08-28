@@ -189,6 +189,9 @@ def mcp(project: ProjectOpt = None,
             "--token", help="Bearer token（--http 时可选，绑 0.0.0.0/:: 必填）")] = None,
         ) -> None:
     """启动 MCP server（stdio 薄壳；--http 切 streamable HTTP，R4/TC-SH-12）。"""
+    # 方括号 host 归一（RW-②）："[::1]" → "::1" 再判守卫（"[::]" 归一后
+    # 仍被通配拦截），归一值透传 main 防 build_mcp 二次包裹崩
+    host = host.strip("[]")
     # 启动守卫（R4）：绑通配地址必须显式 token，否则拒绝启动
     if http and token is None and host in ("0.0.0.0", "::"):
         typer.secho(
