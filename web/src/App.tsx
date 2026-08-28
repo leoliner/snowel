@@ -124,6 +124,9 @@ export default function App() {
               // L22#3：空态"去生成"切回工作区"提案"tab（原默认 no-op 死按钮）
               onGoGenerate={() => setWorkspaceTab('proposals')}
               onSelectChapter={(ch) => setSelectedChapterId(ch.id)}
+              // T4（TC-SH-10 / R5）：拍合并/删除成功 → refreshKey 递增，
+              // FlowTree/提案列表等同步重拉（拍列表由 ProseEditor 内部重拉）
+              onMutated={() => setRefreshKey((k) => k + 1)}
             />
           )}
         </section>

@@ -3,15 +3,20 @@
 // 未保存改动 = 编辑区章名旁 warn 圆点；外部改动（reconcile external_change）
 // = 顶部 warn 条 + "重新登记"（聚焦该章后重新保存为提案）；抽取入口 →
 // POST /api/writeback/extract 结果面板（appeared/warnings/cascade/偏差）。
+// 拍侧栏（TC-SH-10 / R5）：右缘拍列表（story_order 序）+ 每拍合并/删除——
+// 合并两段式（选源拍 → 点选目标拍 → ConfirmDialog 含伏笔迁移预览，预览 =
+// stats/foreshadow 前端过滤 planted_at === source，取数失败不阻塞对话框）；
+// 400 detail（拒绝文案）红条呈现；成功 onMutated 刷新（fix 3 范式防过期响应）。
 // fix round 1（评审 Important×2）：①选中章经 GET /api/chapters/{id}/prose
 // 加载正文（savedText 基线 = 已加载正文，防默认覆盖既有正文）；②未保存改动时
 // 切章（列表/FlowTree/重新登记三入口）弹 ConfirmDialog 确认后丢弃；③保存/抽取
 // 在途切章 → 过期响应丢弃（await 前后章 id 比对）。
 import { useEffect, useRef, useState } from 'react'
 import { api, useApi } from '../api'
-import type { Chapter, FlowState, ReconcileEntry } from '../types'
+import type { Chapter, ChapterBeat, FlowState, ForeshadowStatsResponse, ReconcileEntry } from '../types'
 import { ViolationList } from './ProposalPanel'
 import ConfirmDialog from './ConfirmDialog'
+import { BEAT_LABELS } from './labels'
 
 interface ProseEditorProps {
   readonly?: boolean
@@ -21,6 +26,8 @@ interface ProseEditorProps {
   onGoGenerate?: () => void
   // 编辑器内列表选中回调（App 同步顶栏卷·章 + FlowTree 高亮）
   onSelectChapter?: (chapter: Chapter) => void
+  // 拍合并/删除成功回调（App 递增 refreshKey → FlowTree 等同步重拉，TC-SH-10）
+  onMutated?: () => void
 }
 
 // GET /api/chapters/{id}/prose 响应（web_server 一比一透传 core chapter_prose）
@@ -47,11 +54,17 @@ interface ExtractResult {
   } | null
 }
 
+// 拍侧栏待确认操作（TC-SH-10）：合并（source 并入 target）/ 删除单拍
+type BeatOp =
+  | { kind: 'merge'; source: ChapterBeat; target: ChapterBeat }
+  | { kind: 'delete'; beat: ChapterBeat }
+
 export default function ProseEditor({
   readonly = false,
   chapterId = null,
   onGoGenerate = () => {},
   onSelectChapter,
+  onMutated,
 }: ProseEditorProps) {
   const { data, loading, error } = useApi<FlowState>('/api/flow')
   const { data: reconcile } = useApi<ReconcileEntry[]>('/api/reconcile')
@@ -66,8 +79,22 @@ export default function ProseEditor({
   const { data: prose, loading: proseLoading, error: proseError } =
     useApi<ChapterProse>(prosePath, proseRetry)
 
+  // 拍侧栏数据面（TC-SH-10）：章内拍列表（story_order 稳定序，后端排好）+
+  // 伏笔全集（R2：前端过滤 planted_at === source 得迁移预览，零后端改动）。
+  // beatRefresh 成功合并/删除后递增重拉；selectedId 未定前用哨兵路径（同 prose）
+  const [beatRefresh, setBeatRefresh] = useState(0)
+  const beatsPath = selectedId
+    ? `/api/chapters/${selectedId}/beats`
+    : '/api/chapters/none/beats'
+  const { data: beatsData, error: beatsError } =
+    useApi<ChapterBeat[]>(beatsPath, beatRefresh)
+  const { data: foreshadowData } = useApi<ForeshadowStatsResponse>('/api/stats/foreshadow')
+
   const volumes = data?.volumes ?? []
   const chapters = volumes.flatMap((v) => v.chapters)
+  // 非数组兜底（App.test 全路径 mock 兜底同款）：beats 取数失败/未到达 → 空列表
+  const beats = Array.isArray(beatsData) ? beatsData : []
+  const foreshadows = foreshadowData?.items ?? []
 
   // 编辑区本地态：正文 / 已保存基线（未保存圆点 = text !== savedText）
   const [text, setText] = useState('')
@@ -78,6 +105,14 @@ export default function ProseEditor({
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
   const [extractResult, setExtractResult] = useState<ExtractResult | null>(null)
+
+  // 拍侧栏操作态（TC-SH-10）：busy 防重入（writeDisabled 模式）/ 错误红条 /
+  // 成功提示 / 合并目标点选中的源拍 / 待确认操作（ConfirmDialog）
+  const [beatBusy, setBeatBusy] = useState(false)
+  const [beatError, setBeatError] = useState<string | null>(null)
+  const [beatNote, setBeatNote] = useState<string | null>(null)
+  const [mergeSource, setMergeSource] = useState<ChapterBeat | null>(null)
+  const [beatOp, setBeatOp] = useState<BeatOp | null>(null)
 
   const selected = chapters.find((c) => c.id === selectedId) ?? null
   const entries = Array.isArray(reconcile) ? reconcile : []
@@ -118,6 +153,11 @@ export default function ProseEditor({
     setSaveNote(null)
     setExtractError(null)
     setExtractResult(null)
+    setBeatBusy(false)
+    setBeatError(null)
+    setBeatNote(null)
+    setMergeSource(null)
+    setBeatOp(null)
   }, [selectedId])
 
   // 正文加载（fix 1 + final review fix 2）：选中章正文到达后初始化 text/savedText
@@ -189,6 +229,43 @@ export default function ProseEditor({
     }
   }
 
+  // 伏笔迁移预览（R2）：stats/foreshadow 前端过滤 planted_at === source；
+  // 取数失败（foreshadows 空）不阻塞对话框显示——N=0 文案兜底
+  const foreshadowPreview = (sourceId: string) => {
+    const list = foreshadows.filter((f) => f.planted_at === sourceId)
+    if (list.length === 0) return BEAT_LABELS.noForeshadow
+    return `将迁移 ${list.length} 个伏笔：${list.map((f) => f.name).join('、')}`
+  }
+
+  // 拍合并/删除（TC-SH-10）：确认后 POST，成功 → 提示 + 重拉拍列表 + onMutated；
+  // 400 detail（拒绝文案/只读 409）红条呈现；切章后过期响应丢弃（fix 3 范式）
+  const runBeatOp = async (op: BeatOp) => {
+    const atId = selectedIdRef.current
+    setBeatBusy(true)
+    setBeatError(null)
+    try {
+      if (op.kind === 'merge') {
+        await api.post('/api/beats/merge', { source: op.source.id, target: op.target.id })
+        if (selectedIdRef.current !== atId) return
+        setBeatNote(`已合并「${op.source.name}」→「${op.target.name}」`)
+      } else {
+        await api.post('/api/beats/delete', { beat_id: op.beat.id })
+        if (selectedIdRef.current !== atId) return
+        setBeatNote(`已删除拍「${op.beat.name}」`)
+      }
+      setMergeSource(null)
+      setBeatOp(null)
+      setBeatRefresh((k) => k + 1)
+      onMutated?.()
+    } catch (err) {
+      if (selectedIdRef.current !== atId) return
+      setBeatError(err instanceof Error ? err.message : String(err))
+      setBeatOp(null)
+    } finally {
+      if (selectedIdRef.current === atId) setBeatBusy(false)
+    }
+  }
+
   if (loading) {
     return (
       <div data-testid="prose-skeleton" className="flex flex-col gap-2 p-6">
@@ -224,6 +301,7 @@ export default function ProseEditor({
   }
 
   const writeDisabled = readonly || saving || extracting
+  const beatDisabled = readonly || beatBusy
 
   return (
     <div data-testid="prose-editor" className="flex h-full">
@@ -414,6 +492,132 @@ export default function ProseEditor({
           )}
         </div>
       </div>
+
+      {/* 拍侧栏（TC-SH-10 / R5）：章内拍列表 + 合并/删除；合并两段式——
+          选源拍后其余拍显示"并入此拍"，点选目标弹确认框（含伏笔迁移预览） */}
+      <aside
+        data-testid="beat-sidebar"
+        className="flex w-56 shrink-0 flex-col gap-1 overflow-y-auto border-l border-border p-2"
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-medium text-muted">{BEAT_LABELS.panelTitle}</h3>
+          {mergeSource && (
+            <button
+              type="button"
+              onClick={() => setMergeSource(null)}
+              className="rounded-chip border border-border px-1.5 py-0.5 text-xs text-muted hover:bg-raised"
+            >
+              {BEAT_LABELS.cancelMerge}
+            </button>
+          )}
+        </div>
+        {mergeSource && (
+          <div
+            data-testid="beat-pick-hint"
+            className="rounded-input bg-raised px-2 py-1 text-xs text-muted"
+          >
+            为「{mergeSource.name}」{BEAT_LABELS.pickTarget}
+          </div>
+        )}
+        {beatsError && (
+          <div role="alert" className="rounded-input bg-danger/15 px-2 py-1 text-xs text-danger">
+            {beatsError}
+          </div>
+        )}
+        {beatError && (
+          <div role="alert" className="rounded-input bg-danger/15 px-2 py-1 text-xs text-danger">
+            {beatError}
+          </div>
+        )}
+        {beatNote && (
+          <div
+            role="status"
+            data-testid="beat-note"
+            className="rounded-input bg-ok/10 px-2 py-1 text-xs text-ok"
+          >
+            {beatNote}
+          </div>
+        )}
+        {beats.length === 0 ? (
+          <p className="text-xs text-muted">{BEAT_LABELS.empty}</p>
+        ) : (
+          <ul className="flex flex-col gap-0.5">
+            {beats.map((b) => (
+              <li
+                key={b.id}
+                data-testid="beat-item"
+                className="flex items-center gap-1 rounded-input px-1 py-0.5 text-xs"
+              >
+                <span
+                  data-testid="beat-name"
+                  title={b.name}
+                  className={`min-w-0 flex-1 truncate ${
+                    mergeSource?.id === b.id ? 'text-accent' : 'text-primary'
+                  }`}
+                >
+                  {b.story_order}. {b.name}
+                </span>
+                {mergeSource ? (
+                  mergeSource.id === b.id ? (
+                    <span className="shrink-0 text-accent">{BEAT_LABELS.sourceBeat}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid={`beat-target-${b.id}`}
+                      disabled={beatDisabled}
+                      onClick={() =>
+                        setBeatOp({ kind: 'merge', source: mergeSource, target: b })}
+                      className="shrink-0 rounded-chip border border-border px-1.5 py-0.5 text-muted hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {BEAT_LABELS.mergeInto}
+                    </button>
+                  )
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      data-testid={`beat-merge-${b.id}`}
+                      disabled={beatDisabled || beats.length < 2}
+                      onClick={() => setMergeSource(b)}
+                      title="合并到其他拍"
+                      className="shrink-0 rounded-chip border border-border px-1.5 py-0.5 text-muted hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {BEAT_LABELS.merge}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid={`beat-delete-${b.id}`}
+                      disabled={beatDisabled}
+                      onClick={() => setBeatOp({ kind: 'delete', beat: b })}
+                      className="shrink-0 rounded-chip border border-danger/40 px-1.5 py-0.5 text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {BEAT_LABELS.delete}
+                    </button>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+
+      {/* 拍操作确认（TC-SH-10 / R5，doSeal 危险操作先例）：合并含伏笔迁移预览 */}
+      {beatOp && (
+        <ConfirmDialog
+          title={beatOp.kind === 'merge' ? '合并拍' : '删除拍'}
+          consequence={
+            beatOp.kind === 'merge'
+              ? `将把「${beatOp.source.name}」并入「${beatOp.target.name}」。${foreshadowPreview(beatOp.source.id)}`
+              : `将删除拍「${beatOp.beat.name}」。`
+          }
+          busy={beatBusy}
+          onConfirm={() => void runBeatOp(beatOp)}
+          onCancel={() => {
+            setBeatOp(null)
+            setMergeSource(null)
+          }}
+        />
+      )}
 
       {/* 切章确认（fix 2）：有未保存改动时丢弃草稿须二次确认 */}
       {pendingChapter && (

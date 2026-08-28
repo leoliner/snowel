@@ -44,3 +44,16 @@ export const INSPIRATION_LABELS = {
   save: '保存灵感',
   derive: '从灵感发起生成',
 } as const
+
+// 拍侧栏（TC-SH-10 / R5）：ProseEditor 章编辑区拍列表 + 合并/删除操作文案
+export const BEAT_LABELS = {
+  panelTitle: '拍',
+  merge: '合并',
+  delete: '删除',
+  mergeInto: '并入此拍',
+  pickTarget: '点选合并目标拍',
+  cancelMerge: '取消合并',
+  sourceBeat: '源拍',
+  empty: '本章暂无拍',
+  noForeshadow: '无伏笔引用此拍',
+} as const

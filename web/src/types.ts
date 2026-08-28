@@ -122,6 +122,14 @@ export interface InspirationItem {
   text: string
 }
 
+// GET /api/chapters/{chapter_id}/beats（TC-SH-10 数据面 R1）：章内拍列表
+// （core api.beats_of() 一比一，story_order 稳定序）
+export interface ChapterBeat {
+  id: string
+  name: string
+  story_order: number
+}
+
 export interface RewriteResult {
   proposal_id: string
 }
