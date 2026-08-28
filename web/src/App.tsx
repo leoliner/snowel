@@ -19,6 +19,8 @@ import ProseEditor from './components/ProseEditor'
 import ChatSidebar from './components/ChatSidebar'
 import VizPanel from './components/VizPanel'
 import type { WorkspaceTab } from './components/VizPanel'
+import ManualModal from './components/ManualModal'
+import { MANUAL_LABELS } from './components/labels'
 
 function Skeleton({ className = 'h-4' }: { className?: string }) {
   return <div data-testid="skeleton" className={`skeleton ${className}`} />
@@ -34,6 +36,8 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   // T13：工作区顶部 tab（提案/可视化 互斥），状态提升以便 onGoProposals 切 tab
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('proposals')
+  // T2（TC-SH-13 / R3）：手册弹窗，顶栏"？"常驻入口
+  const [manualOpen, setManualOpen] = useState(false)
 
   const data = session.data
   const readonly = data?.readonly ?? false
@@ -65,6 +69,16 @@ export default function App() {
             title={readonly ? '只读会话' : '写会话'}
             className={`h-2.5 w-2.5 rounded-full ${readonly ? 'bg-warn' : 'bg-ok'}`}
           />
+          <button
+            data-testid="manual-btn"
+            type="button"
+            title={MANUAL_LABELS.openBtn}
+            aria-label={MANUAL_LABELS.openBtn}
+            onClick={() => setManualOpen(true)}
+            className="rounded-btn border border-border bg-raised px-2 py-0.5 text-xs leading-none text-primary hover:bg-border"
+          >
+            ？
+          </button>
         </div>
       </header>
 
@@ -204,6 +218,9 @@ export default function App() {
           </div>
         </aside>
       </main>
+
+      {/* T2（TC-SH-13 / R3）：手册弹窗挂根部（内部 open=false 返 null） */}
+      <ManualModal open={manualOpen} onClose={() => setManualOpen(false)} />
     </div>
   )
 }

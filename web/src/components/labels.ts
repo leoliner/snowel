@@ -57,3 +57,13 @@ export const BEAT_LABELS = {
   empty: '本章暂无拍',
   noForeshadow: '无伏笔引用此拍',
 } as const
+
+// 手册弹窗（TC-SH-13 / R3）：顶栏"？"入口 + 弹窗内文案
+export const MANUAL_LABELS = {
+  openBtn: '使用手册',
+  filter: '过滤手册',
+  filterPlaceholder: '输入关键词过滤章节…',
+  toc: '手册目录',
+  empty: '没有匹配的章节',
+  close: '关闭手册',
+} as const

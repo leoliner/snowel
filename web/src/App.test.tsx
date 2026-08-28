@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import App from './App'
 import { useApi } from './api'
 import { streamSSE } from './sse'
@@ -138,6 +138,27 @@ describe('T3 灵感面板挂载（TC-SH-09 / R4：proposals tab，GenerateForm �
     expect(screen.getByTestId('inspiration-panel')).toBeInTheDocument()
     expect(screen.getByLabelText('灵感原话')).toBeDisabled()
     expect(screen.getByRole('button', { name: '保存灵感' })).toBeDisabled()
+  })
+})
+
+describe('T2 手册弹窗入口（TC-SH-13 / R3：顶栏"？"常驻）', () => {
+  it('manual-btn 存在（title 使用手册）；点击打开弹窗且目录为真实 12 章', () => {
+    mockSession(writableSession)
+    render(<App />)
+    expect(screen.queryByRole('dialog', { name: '使用手册' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '使用手册' }))
+    expect(screen.getByTestId('manual-btn')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '使用手册' })).toBeInTheDocument()
+    expect(within(screen.getByTestId('manual-toc')).getAllByRole('button')).toHaveLength(12)
+  })
+
+  it('弹窗内关闭按钮 → 弹窗收起（onClose 接线）', () => {
+    mockSession(writableSession)
+    render(<App />)
+    fireEvent.click(screen.getByTestId('manual-btn'))
+    expect(screen.getByRole('dialog', { name: '使用手册' })).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('manual-close'))
+    expect(screen.queryByRole('dialog', { name: '使用手册' })).not.toBeInTheDocument()
   })
 })
 
