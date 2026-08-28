@@ -134,6 +134,25 @@ async def test_generate_and_search_wired(project):
         assert "result" in s
 
 
+async def test_generate_derive_from_passthrough(project):
+    # §4 矩阵 MCP 侧：generate 带 derive_from（与 Web /api/generate 同款条件透传）
+    api = SnowelAPI.open(project)
+    iid = api.save_inspiration("灵感原话")
+    api.close()
+    async with _connected(project, backend=FakeBackend([
+            json.dumps({"draft": "提炼稿", "facts": [], "appeared": []}),
+            json.dumps({"draft": "普通稿", "facts": [], "appeared": []}),
+    ])) as (ctx, client):
+        g = await _call(client, "snowel_generate", {
+            "artifact_type": "premise", "derive_from": [iid]})
+        g2 = await _call(client, "snowel_generate",
+                         {"artifact_type": "premise"})  # 缺席 → 调用形状同改前
+        p1 = json.loads(ctx.api.proposals.get(g["proposal_id"])["payload"])
+        assert p1["derive_from"] == [iid]   # 来源进载荷（confirm 建 DERIVED_FROM 边）
+        assert "derive_from" not in json.loads(
+            ctx.api.proposals.get(g2["proposal_id"])["payload"])
+
+
 async def test_writeback_actions_wired(project, tmp_path):
     api = SnowelAPI.open(project)
     from snowel_core.writeback import mirror
@@ -246,7 +265,9 @@ async def test_advanced_catalog_and_rebuild(project):  # TC-SH-02
             assert ops[k]["via"] == "snowel_writeback"
         assert all(not v["wired"] for k, v in ops.items()
                    if k not in ("rebuild", "audit",
-                                "seal", "retcon", "foreshadow_register"))
+                                "seal", "retcon", "foreshadow_register",
+                                "inspiration_save", "inspiration_list",
+                                "beat_merge", "beat_delete"))
         done = await _call(client, "snowel_advanced", {"op": "rebuild"})
         assert done == {"rebuilt": True}
         guide = await _call(client, "snowel_advanced", {"op": "seal"})
@@ -254,6 +275,90 @@ async def test_advanced_catalog_and_rebuild(project):  # TC-SH-02
                          "hint": "经 snowel_writeback 对应 action 调用"}
         miss = await _call(client, "snowel_advanced", {"op": "setting_gap"})
         _assert_not_wired(miss, "setting_gap")
+
+
+async def test_advanced_new_ops_catalog(project):  # TC-SH-11 锚
+    async with _connected(project) as (ctx, client):
+        ops = (await _call(client, "snowel_advanced", {}))["operations"]
+        for k in ("inspiration_save", "inspiration_list",
+                  "beat_merge", "beat_delete"):
+            assert ops[k]["wired"] is True
+        assert "text" in ops["inspiration_save"]["params"]
+        assert {"source", "target"} <= set(ops["beat_merge"]["params"])
+        assert "beat_id" in ops["beat_delete"]["params"]
+        # 裁决 6：扩展包不做 Web/MCP 面，仅 CLI 管理
+        assert ops["extension_packs"]["wired"] is False
+        assert "仅 CLI" in ops["extension_packs"]["planned_in"]
+        assert "snowel ext" in ops["extension_packs"]["planned_in"]
+
+
+async def test_advanced_inspiration_save_and_list(project):
+    async with _connected(project) as (ctx, client):
+        s = await _call(client, "snowel_advanced", {
+            "op": "inspiration_save", "params": {"text": "雨夜钥匙的灵感"}})
+        assert s["wired"] is True
+        assert s["inspiration_id"]
+        listed = await _call(client, "snowel_advanced",
+                             {"op": "inspiration_list"})
+        assert listed["wired"] is True
+        assert [r["id"] for r in listed["result"]] == [s["inspiration_id"]]
+        assert listed["result"][0]["text"] == "雨夜钥匙的灵感"
+        empty = await client.call_tool("snowel_advanced", {
+            "op": "inspiration_save", "params": {"text": "   "}})
+        assert empty.isError  # 空文本拒绝 → MCP 错误响应（400 语义）
+        assert "灵感文本不能为空" in empty.content[0].text
+
+
+async def test_advanced_beat_merge_delete_ops(project):
+    api = SnowelAPI.open(project)
+    pid = api.proposals.create("t", {"facts": [
+        {"fact": "node", "id": "mb1", "types": ["MicroBeat"], "name": "开场拍",
+         "props": {"address": {"volume": 1, "chapter": 1, "scene": 1,
+                               "beat": 1}}},
+        {"fact": "node", "id": "mb2", "types": ["MicroBeat"], "name": "承接拍",
+         "props": {"address": {"volume": 1, "chapter": 1, "scene": 1,
+                               "beat": 2}}}]})
+    api.confirm(pid)
+    api.close()
+    async with _connected(project) as (ctx, client):
+        f = await _call(client, "snowel_writeback", {
+            "action": "foreshadow",
+            "params": {"name": "怀表", "planted_at": "mb1"}})
+        await _call(client, "snowel_proposal", {
+            "action": "confirm", "proposal_id": f["proposal_id"]})
+        ref = await client.call_tool("snowel_advanced", {
+            "op": "beat_delete", "params": {"beat_id": "mb1"}})
+        assert ref.isError  # 被 planted_at 引用 → 拒绝
+        assert "伏笔引用" in ref.content[0].text
+        m = await _call(client, "snowel_advanced", {
+            "op": "beat_merge", "params": {"source": "mb1", "target": "mb2"}})
+        assert m["wired"] is True
+        assert m["event_seq"] >= 1
+        gone = await _call(client, "snowel_advanced", {
+            "op": "beat_delete", "params": {"beat_id": "mb1",
+                                            "reason": "并入承接拍"}})
+        assert gone["wired"] is True  # 合并迁移引用后源拍可删
+        assert gone["event_seq"] >= 1
+
+
+async def test_advanced_write_ops_require_lease(project):
+    blocker = open_project(project, heartbeat=False)
+    try:
+        async with _connected(project) as (ctx, client):
+            assert ctx.readonly is True
+            for args in ({"op": "inspiration_save",
+                          "params": {"text": "灵感"}},
+                         {"op": "beat_merge",
+                          "params": {"source": "a", "target": "b"}},
+                         {"op": "beat_delete", "params": {"beat_id": "a"}}):
+                res = await client.call_tool("snowel_advanced", args)
+                assert res.isError  # require_write 拒绝 → MCP 错误响应
+                assert "写操作被拒绝" in res.content[0].text
+            lst = await _call(client, "snowel_advanced",
+                              {"op": "inspiration_list"})
+            assert lst["wired"] is True  # 只读 op 不受租约约束
+    finally:
+        blocker.close()
 
 
 async def test_writeback_seal_and_retcon_wired(project, tmp_path):

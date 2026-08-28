@@ -241,13 +241,21 @@ def create_app(project_root: str | Path,
     @app.post("/api/generate", dependencies=[Depends(_require_write)])
     async def generate(request: Request,
                        body: dict | None = None) -> dict[str, Any]:
-        """生成环：按产物类型产出提案（产出必进队列，不直接回生成文本）。"""
+        """生成环：按产物类型产出提案（产出必进队列，不直接回生成文本）。
+
+        derive_from（Step 4 T3 契约）：body 显式携带数组才透传门面
+        （提炼来源，confirm 建 DERIVED_FROM 边），缺席保持既有调用形状。
+        """
         api = request.app.state.api
         artifact_type = _require(body, "artifact_type")
+        derive_from = (body or {}).get("derive_from")
+        kw = ({"derive_from": derive_from}
+              if isinstance(derive_from, list) else {})
         pid = api.ai_generate(artifact_type,
                               locate=(body or {}).get("locate"),
                               extra=(body or {}).get("extra"),
-                              backend=request.app.state.llm_backend or None)
+                              backend=request.app.state.llm_backend or None,
+                              **kw)
         return {"proposal_id": pid}
 
     @app.post("/api/expand/chapter", dependencies=[Depends(_require_write)])
@@ -357,6 +365,44 @@ def create_app(project_root: str | Path,
                                    _require(body, "new_address"),
                                    reason=(body or {}).get("reason", ""))
         return {"proposal_id": pid}
+
+    # ---- 灵感层 + 拍操作（Step 4 T2，TC-SH-09/10 数据面）：GET 不挂写守卫，
+    # POST 统一过守卫；触 db 端点一律 async def（同上，T4 实证）----
+    @app.get("/api/inspirations")
+    async def inspirations(request: Request) -> list[dict]:
+        """灵感列表（TC-SH-09）：一比一 api.inspirations()。"""
+        return request.app.state.api.inspirations()
+
+    @app.post("/api/inspirations", dependencies=[Depends(_require_write)])
+    async def save_inspiration(request: Request,
+                               body: dict | None = None) -> dict[str, Any]:
+        """保存灵感原话（TC-SH-09）：作者手输直接落事件，不走提案。"""
+        iid = request.app.state.api.save_inspiration(_require(body, "text"))
+        return {"inspiration_id": iid}
+
+    @app.get("/api/chapters/{chapter_id}/beats")
+    async def chapter_beats(request: Request, chapter_id: str) -> list[dict]:
+        """章内拍列表（TC-SH-10 数据面，R1）：core 只读门面薄转发，壳零 SQL。"""
+        return request.app.state.api.beats_of(chapter_id)
+
+    @app.post("/api/beats/merge", dependencies=[Depends(_require_write)])
+    async def beats_merge(request: Request,
+                          body: dict | None = None) -> dict[str, Any]:
+        """合并两拍（TC-SH-10）：源拍失效，伏笔引用与边有效期随迁；moved 为
+        beat_merged 事件 seq。"""
+        api = request.app.state.api
+        seq = api.merge_beats(_require(body, "source"),
+                              _require(body, "target"))
+        return {"merged": True, "moved": seq}
+
+    @app.post("/api/beats/delete", dependencies=[Depends(_require_write)])
+    async def beats_delete(request: Request,
+                           body: dict | None = None) -> dict[str, Any]:
+        """删除拍（TC-SH-10）：被伏笔引用拒绝（core ValueError → 400 detail）。"""
+        api = request.app.state.api
+        api.delete_beat(_require(body, "beat_id"),
+                        reason=(body or {}).get("reason"))
+        return {"deleted": True}
 
     # ---- 聊天代理（Task 8/W6）：SSE 流式 + 非流式聚合，backend 注入同 T6 ----
     # 进流前统一校验（空 message/畸形 history → 400）；触 db 端点保持 async def

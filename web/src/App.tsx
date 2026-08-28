@@ -14,6 +14,7 @@ import FlowTree from './components/FlowTree'
 import ProposalList from './components/ProposalList'
 import ProposalPanel from './components/ProposalPanel'
 import GenerateForm from './components/GenerateForm'
+import InspirationPanel from './components/InspirationPanel'
 import ProseEditor from './components/ProseEditor'
 import ChatSidebar from './components/ChatSidebar'
 import VizPanel from './components/VizPanel'
@@ -123,6 +124,9 @@ export default function App() {
               // L22#3：空态"去生成"切回工作区"提案"tab（原默认 no-op 死按钮）
               onGoGenerate={() => setWorkspaceTab('proposals')}
               onSelectChapter={(ch) => setSelectedChapterId(ch.id)}
+              // T4（TC-SH-10 / R5）：拍合并/删除成功 → refreshKey 递增，
+              // FlowTree/提案列表等同步重拉（拍列表由 ProseEditor 内部重拉）
+              onMutated={() => setRefreshKey((k) => k + 1)}
             />
           )}
         </section>
@@ -142,7 +146,19 @@ export default function App() {
             ) : (
               <VizPanel activeTab={workspaceTab} onTabChange={setWorkspaceTab}>
                 <div className="flex flex-col gap-3">
-                  <GenerateForm readonly={readonly} onGenerated={setSelectedPid} />
+                  {/* T3（TC-SH-09 / R4）：灵感面板挂提案 tab GenerateForm 之上——
+                      derive 联动闭环在同一 tab；保存成功 → refreshKey 递增，
+                      面板列表与 GenerateForm 灵感 chips 同步重拉 */}
+                  <InspirationPanel
+                    readonly={readonly}
+                    refreshKey={refreshKey}
+                    onSaved={() => setRefreshKey((k) => k + 1)}
+                  />
+                  <GenerateForm
+                    readonly={readonly}
+                    refreshKey={refreshKey}
+                    onGenerated={setSelectedPid}
+                  />
                   <ProposalList
                     selectedId={selectedPid}
                     refreshKey={refreshKey}

@@ -272,6 +272,104 @@ describe('ProseEditor（ui-design-01 §5.2/§5.9 中栏正文编辑页）', () =
     expect(screen.queryByTestId('unsaved-dot')).not.toBeInTheDocument()
   })
 
+  // ---- Task 4（TC-SH-10 / R5）：拍侧栏 + 合并/删除操作 ----
+
+  const beats = [
+    { id: 'b1', name: '开场拍', story_order: 1 },
+    { id: 'b2', name: '冲突拍', story_order: 2 },
+    { id: 'b3', name: '收束拍', story_order: 3 },
+  ]
+  const beatPaths = {
+    '/api/chapters/c1/beats': beats,
+    '/api/stats/foreshadow': { items: [] },
+  }
+
+  it('拍侧栏渲染章内拍列表（story_order 序号 + 拍名）', () => {
+    mockPaths({ '/api/flow': flow, '/api/reconcile': [], ...beatPaths })
+    render(<ProseEditor />)
+    expect(screen.getByTestId('beat-sidebar')).toBeInTheDocument()
+    const names = screen.getAllByTestId('beat-name').map((el) => el.textContent)
+    expect(names).toEqual(['1. 开场拍', '2. 冲突拍', '3. 收束拍'])
+  })
+
+  it('合并流：选源拍→点合并→点目标拍→ConfirmDialog 含伏笔迁移预览（N>0 列名称）→确认→POST merge 参数', async () => {
+    mockPaths({
+      '/api/flow': flow,
+      '/api/reconcile': [],
+      ...beatPaths,
+      '/api/stats/foreshadow': {
+        items: [
+          { id: 'f1', name: '林中剑', planted_at: 'b1', payoff_beat: null, status: 'planted' },
+          { id: 'f2', name: '别处伏笔', planted_at: 'b2', payoff_beat: null, status: 'planted' },
+        ],
+      },
+    })
+    mockPost.mockResolvedValue({ merged: true, moved: 7 })
+    render(<ProseEditor />)
+    fireEvent.click(screen.getByTestId('beat-merge-b1'))       // 选源拍：进入目标点选态
+    expect(screen.getByTestId('beat-pick-hint')).toHaveTextContent('开场拍')
+    fireEvent.click(screen.getByTestId('beat-target-b2'))      // 点目标拍 → 弹确认框
+    expect(screen.getByRole('dialog')).toHaveTextContent('将迁移 1 个伏笔：林中剑')
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/api/beats/merge', { source: 'b1', target: 'b2' })
+    })
+    expect(screen.getByTestId('beat-note')).toHaveTextContent('已合并')
+  })
+
+  it('合并预览 N=0：对话框显示"无伏笔引用此拍"；取消退出不触发 POST', () => {
+    mockPaths({
+      '/api/flow': flow,
+      '/api/reconcile': [],
+      ...beatPaths,
+      '/api/stats/foreshadow': {
+        items: [
+          { id: 'f2', name: '别处伏笔', planted_at: 'b2', payoff_beat: null, status: 'planted' },
+        ],
+      },
+    })
+    render(<ProseEditor />)
+    fireEvent.click(screen.getByTestId('beat-merge-b1'))
+    fireEvent.click(screen.getByTestId('beat-target-b3'))
+    expect(screen.getByRole('dialog')).toHaveTextContent('无伏笔引用此拍')
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('删除流：点删除→确认→POST /api/beats/delete {beat_id} + 成功提示', async () => {
+    mockPaths({ '/api/flow': flow, '/api/reconcile': [], ...beatPaths })
+    mockPost.mockResolvedValue({ deleted: true })
+    render(<ProseEditor />)
+    fireEvent.click(screen.getByTestId('beat-delete-b3'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/api/beats/delete', { beat_id: 'b3' })
+    })
+    expect(screen.getByTestId('beat-note')).toHaveTextContent('已删除')
+  })
+
+  it('拒绝呈现：删除被伏笔引用拍 → 后端 400 detail 红条文案', async () => {
+    mockPaths({ '/api/flow': flow, '/api/reconcile': [], ...beatPaths })
+    mockPost.mockRejectedValue(
+      new Error('该拍承载 1 个伏笔引用，先 merge_beats 到承接拍或迁移伏笔'))
+    render(<ProseEditor />)
+    fireEvent.click(screen.getByTestId('beat-delete-b1'))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        '该拍承载 1 个伏笔引用，先 merge_beats 到承接拍或迁移伏笔')
+    })
+  })
+
+  it('只读会话：合并/删除按钮禁用（写守卫 409 前置双保险）', () => {
+    mockPaths({ '/api/flow': flow, '/api/reconcile': [], ...beatPaths })
+    render(<ProseEditor readonly />)
+    expect(screen.getByTestId('beat-merge-b1')).toBeDisabled()
+    expect(screen.getByTestId('beat-delete-b1')).toBeDisabled()
+  })
+
   it('保存/抽取在途切章：过期响应丢弃，新章无幽灵圆点/无错章提示（F3）', async () => {
     mockPaths({
       '/api/flow': flow,

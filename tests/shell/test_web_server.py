@@ -918,3 +918,144 @@ async def test_tc_sh_08_api_e2e(project):
         assert check.proposals.get(pid)["status"] == "confirmed"
     finally:
         check.close()
+
+
+# ---- Step 4 T2（TC-SH-09/10 数据面 / R1）：灵感两端点 + 拍列表/合并/删除
+# + generate derive_from 透传（响应形状即 T3/T4 前端契约）----
+
+def _seed_beats(project):
+    """拍操作种子：两章各带地址 + 章一两拍 + 章一一伏笔（planted_at=mb1）。"""
+    api = SnowelAPI.open(project)
+    _seed_event(api, [
+        {"fact": "node", "id": "ch1", "types": ["Chapter"], "name": "第一章",
+         "props": {"address": {"volume": 1, "chapter": 1}}},
+        {"fact": "node", "id": "ch2", "types": ["Chapter"], "name": "第二章",
+         "props": {"address": {"volume": 1, "chapter": 2}}},
+        {"fact": "node", "id": "mb1", "types": ["MicroBeat"], "name": "拍一",
+         "props": {"address": {"volume": 1, "chapter": 1, "scene": 1,
+                               "beat": 1}}},
+        {"fact": "node", "id": "mb2", "types": ["MicroBeat"], "name": "拍二",
+         "props": {"address": {"volume": 1, "chapter": 1, "scene": 1,
+                               "beat": 2}}},
+        {"fact": "node", "id": "mb3", "types": ["MicroBeat"], "name": "异章拍",
+         "props": {"address": {"volume": 1, "chapter": 2, "scene": 1,
+                               "beat": 1}}},
+        {"fact": "node", "id": "f1", "types": ["Foreshadow"], "name": "怀表",
+         "props": {"foreshadow": {"planted_at": "mb1", "origin": "author",
+                                  "payoff_beat": None, "note": ""}}},
+    ])
+    api.close()
+
+
+async def test_inspirations_endpoints(project):
+    # 只读相位先行：同进程二次 create_app 同 holder 字符串幂等复得租约，
+    # 无法事后翻只读——须异端先持锁（TC-SH-04 同款）
+    api = SnowelAPI.open(project)
+    api.acquire_lease("mcp:test-holder")
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/inspirations", json={"text": "hi"})
+        assert r.status_code == 409 and "只读" in r.json()["detail"]
+    api.release_lease("mcp:test-holder")
+    api.close()
+    # 写会话闭环：保存 → 列表见条目（name/text 同原文）；空文本两档 400
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.post("/api/inspirations",
+                         json={"text": "无限流想法原话"})
+        assert r.status_code == 200
+        iid = r.json()["inspiration_id"]
+        assert iid
+        assert (await c.get("/api/inspirations")).json() == [
+            {"id": iid, "name": "无限流想法原话", "text": "无限流想法原话"}]
+        assert (await c.post("/api/inspirations", json={})
+                ).status_code == 400            # 缺/空值 → _require"必填"
+        r2 = await c.post("/api/inspirations", json={"text": "   "})
+        assert r2.status_code == 400 and "灵感文本不能为空" in r2.json()["detail"]
+
+
+async def test_chapter_beats_endpoint(project):
+    _seed_beats(project)
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        r = await c.get("/api/chapters/ch1/beats")
+        assert r.status_code == 200
+        body = r.json()
+        # 按序返回 id/name/story_order，键集即契约（T4 拍侧栏数据源）
+        assert [(b["id"], b["name"]) for b in body] == [("mb1", "拍一"),
+                                                        ("mb2", "拍二")]
+        assert all(set(b) == {"id", "name", "story_order"}
+                   and isinstance(b["story_order"], int) for b in body)
+        assert body[0]["story_order"] < body[1]["story_order"]
+        # 异章不串；非章节 id → core ValueError → 400
+        assert [b["id"] for b in
+                (await c.get("/api/chapters/ch2/beats")).json()] == ["mb3"]
+        r2 = await c.get("/api/chapters/nope/beats")
+        assert r2.status_code == 400 and "章节节点不存在" in r2.json()["detail"]
+
+
+async def test_beat_merge_delete_endpoints(project):
+    _seed_beats(project)
+    app = create_app(str(project))
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        # merge：伏笔引用随迁，moved 为事件 seq
+        r = await c.post("/api/beats/merge",
+                         json={"source": "mb1", "target": "mb2"})
+        assert r.status_code == 200
+        assert r.json()["merged"] is True
+        assert isinstance(r.json()["moved"], int)
+        # delete 空拍（无伏笔引用）成功，reason 可选透传
+        r2 = await c.post("/api/beats/delete",
+                          json={"beat_id": "mb3", "reason": "多余"})
+        assert r2.status_code == 200 and r2.json() == {"deleted": True}
+        # delete 被 planted_at 引用拍（merge 后 f1 已随迁 mb2）→ 400 拒绝文案
+        r3 = await c.post("/api/beats/delete", json={"beat_id": "mb2"})
+        assert r3.status_code == 400
+        assert "该拍承载 1 个伏笔引用" in r3.json()["detail"]
+    check = SnowelAPI.open(project)               # 独立句柄验事件落库
+    try:
+        kinds = [row["kind"] for row in check._conn.execute(
+            "SELECT kind FROM events ORDER BY seq").fetchall()]
+        assert "beat_merged" in kinds and "beat_deleted" in kinds
+        ev = check._conn.execute(
+            "SELECT payload FROM events WHERE kind='beat_deleted'").fetchone()
+        assert json.loads(ev["payload"]) == {"beat_id": "mb3",
+                                             "reason": "多余"}
+        assert check.get_node("mb1") is None      # 源拍失效（active 过滤）
+        f1 = check.get_node("f1")
+        assert json.loads(f1["props"])["foreshadow"]["planted_at"] == "mb2"
+    finally:
+        check.close()
+
+
+async def test_generate_accepts_derive_from(project):
+    api = SnowelAPI.open(project)
+    iid = api.save_inspiration("灵感原话")
+    api.close()
+    fake = FakeBackend([_llm_resp("提炼稿"), _llm_resp("普通稿"),
+                        _llm_resp("忽略稿")])
+    app = create_app(str(project), llm_backend=fake)
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://t") as c:
+        pid = (await c.post("/api/generate", json={
+            "artifact_type": "premise", "derive_from": [iid]}
+        )).json()["proposal_id"]
+        pid2 = (await c.post("/api/generate", json={
+            "artifact_type": "premise"})).json()["proposal_id"]
+        # 非 list 视同缺席（T3 契约：仅数组透传门面）
+        pid3 = (await c.post("/api/generate", json={
+            "artifact_type": "premise", "derive_from": "mb1"}
+        )).json()["proposal_id"]
+    check = SnowelAPI.open(project)
+    try:
+        p1 = json.loads(check.proposals.get(pid)["payload"])
+        assert p1["derive_from"] == [iid]          # 来源进载荷（confirm 建 DERIVED_FROM）
+        for p in (pid2, pid3):
+            assert "derive_from" not in json.loads(
+                check.proposals.get(p)["payload"])  # 缺席调用同旧：无该键
+    finally:
+        check.close()

@@ -1,4 +1,4 @@
-// 领域术语中文标签（单处维护，组件共用）：雪花七层 + 提案 kind
+// 领域术语中文标签（单处维护，组件共用）：雪花七层 + 提案 kind + 灵感面板
 import type { LayerKind, ProposalKind } from '../types'
 
 export const LAYERS: LayerKind[] = [
@@ -36,3 +36,24 @@ export const KIND_LABELS: Record<ProposalKind, string> = {
   revision: '修订',
   extract_facts: '事实抽取',
 }
+
+// 灵感面板（TC-SH-09 / R4）：面板标题/输入/按钮 + GenerateForm derive 小节标题
+export const INSPIRATION_LABELS = {
+  panelTitle: '灵感',
+  input: '灵感原话',
+  save: '保存灵感',
+  derive: '从灵感发起生成',
+} as const
+
+// 拍侧栏（TC-SH-10 / R5）：ProseEditor 章编辑区拍列表 + 合并/删除操作文案
+export const BEAT_LABELS = {
+  panelTitle: '拍',
+  merge: '合并',
+  delete: '删除',
+  mergeInto: '并入此拍',
+  pickTarget: '点选合并目标拍',
+  cancelMerge: '取消合并',
+  sourceBeat: '源拍',
+  empty: '本章暂无拍',
+  noForeshadow: '无伏笔引用此拍',
+} as const
