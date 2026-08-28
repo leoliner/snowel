@@ -3,9 +3,12 @@ import json
 from contextlib import asynccontextmanager
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from snowel.mcp_server import build_mcp
+from snowel.mcp_server import StaticTokenVerifier, build_mcp
 from snowel.project import open_project
 from snowel_core.api import SnowelAPI
 from tests.conftest import FakeBackend
@@ -479,3 +482,101 @@ async def test_reconcile_rejected_when_readonly(project):
             assert res.isError  # require_write 拒绝 → MCP 错误响应
     finally:
         blocker.close()
+
+
+# ---- streamable HTTP（R3/TC-SH-12）----
+# ASGITransport 不发 lifespan 消息，而 streamable_http_app 的 lifespan 即
+# session_manager.run()（FastMCP 自带 async CM）→ 测试内手动起停，不引新依赖。
+# loopback 默认开启 DNS rebinding 保护（Host 头须含端口）→ base_url 带端口。
+
+_SIX_TOOLS = {"snowel_status", "snowel_generate", "snowel_query",
+              "snowel_proposal", "snowel_writeback", "snowel_advanced"}
+
+
+async def test_stdio_regression_unchanged(project):  # TC-SH-12 stdio 子句回归锚
+    # 零新断言：原样复跑 TC-SH-01 六工具不变式 + advanced 目录接线断言，
+    # 把"main 默认参数不改 stdio 路径"的回归意图显式钉在 SH 域
+    async with _connected(project) as (ctx, client):
+        tools = await client.list_tools()
+        assert {t.name for t in tools.tools} == _SIX_TOOLS
+        cat = await _call(client, "snowel_advanced", {})
+        assert cat["operations"]["audit"]["wired"] is True
+
+
+def _asgi_client(app, token=None):
+    """streamable_http_client 的 http_client 注入点：走 ASGITransport 不启真端口。"""
+    headers = {"Authorization": f"Bearer {token}"} if token is not None else None
+    return AsyncClient(transport=ASGITransport(app=app),
+                       base_url="http://127.0.0.1:8642", headers=headers)
+
+
+async def test_http_app_tool_enumeration_matches_stdio(project):
+    async with _connected(project) as (ctx, client):  # stdio 基线（TC-SH-01 同断言）
+        stdio = await client.list_tools()
+        stdio_set = {t.name for t in stdio.tools}
+        assert stdio_set == _SIX_TOOLS
+
+    http_ctx = open_project(project)
+    try:
+        mcp = build_mcp(http_ctx, host="127.0.0.1", port=8642,
+                        token_verifier=StaticTokenVerifier("s3cret"))
+        app = mcp.streamable_http_app()
+        async with mcp.session_manager.run():
+            # http_client 自建自管（caller-owned），客户端生命周期归本测试
+            async with _asgi_client(app, "s3cret") as http_client:
+                async with streamable_http_client(
+                        "http://127.0.0.1:8642/mcp", http_client=http_client,
+                ) as (read, write, _get_session_id):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        http_tools = await session.list_tools()
+        assert {t.name for t in http_tools.tools} == stdio_set
+    finally:
+        http_ctx.close()
+
+
+async def test_ipv6_wildcard_host_builds_with_token(project):
+    # 规格：--host :: + token 守卫放行后必须可启动。resource_server_url 若裸
+    # 拼接得 "http://:::8642"，AuthSettings 构造期 ValidationError 裸崩——
+    # IPv6 形态 host 须走方括号 URL
+    ctx = open_project(project)
+    try:
+        mcp = build_mcp(ctx, host="::", port=8642,
+                        token_verifier=StaticTokenVerifier("s3cret"))
+        app = mcp.streamable_http_app()  # 冒烟：路由+middleware 全量装配
+        assert app is not None
+    finally:
+        ctx.close()
+
+
+async def test_http_wrong_token_401(project):
+    http_ctx = open_project(project)
+    try:
+        mcp = build_mcp(http_ctx, host="127.0.0.1", port=8642,
+                        token_verifier=StaticTokenVerifier("s3cret"))
+        app = mcp.streamable_http_app()
+        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                           "clientInfo": {"name": "t", "version": "0"}}}
+        accept = {"Accept": "application/json, text/event-stream"}
+        async with mcp.session_manager.run():
+            async with AsyncClient(transport=ASGITransport(app=app),
+                                   base_url="http://127.0.0.1:8642") as c:
+                no_auth = await c.post("/mcp", json=init, headers=accept)
+                wrong = await c.post("/mcp", json=init, headers={
+                    **accept, "Authorization": "Bearer wrong"})
+                # 真实客户端可发原始字节头（httpx 便捷层不拦 bytes）：starlette
+                # 按 latin-1 解码得非 ASCII str——畸形 token 须 401 而非 TypeError 500
+                mojibake = await c.post("/mcp", json=init, headers={
+                    **accept,
+                    "Authorization": "Bearer tøken".encode("utf-8")})
+                good = await c.post("/mcp", json=init, headers={
+                    **accept, "Authorization": "Bearer s3cret"})
+        assert no_auth.status_code == 401
+        assert wrong.status_code == 401
+        assert mojibake.status_code == 401
+        assert "invalid_token" in no_auth.headers["www-authenticate"]
+        assert good.status_code == 200  # 对 token 放行（会话初始化成功）
+    finally:
+        http_ctx.close()
+

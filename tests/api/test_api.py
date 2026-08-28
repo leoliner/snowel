@@ -49,8 +49,12 @@ def test_backup_refuses_overwrite(tmp_path):
 
 
 def test_search_and_audit_recent_facades(tmp_path):
+    from snowel_core.storage import config
     api = SnowelAPI.init_project(tmp_path)
     try:
+        # 改写层默认开会尝试 LLM（无 backend 环境即失败落审计）——本测锚定
+        # 门面接线的确定性路径，显式关闭
+        config.set(api._conn, "retrieval.rewrite", False)
         assert api.search("林晚") == {"nodes": [], "paragraphs": []}
         assert api.audit_recent() == []  # 空 audit 表（Task 18 门面接线）
     finally:

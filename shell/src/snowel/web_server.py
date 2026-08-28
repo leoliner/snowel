@@ -327,8 +327,8 @@ def create_app(project_root: str | Path,
         """auto 条目事后否决（C11，不受冻结线）：entries=[[target, id], ...]。"""
         api = request.app.state.api
         entries = _require(body, "entries")
-        # L22#2：畸形条目（非二元组/元素类型错）解包炸 TypeError/IndexError
-        # 或静默写入语义空 retraction → 500；先形状校验统一 ValueError 映射 400
+        # L22#2：畸形条目（非二元组/元素类型错）解包炸 TypeError/IndexError → 500，
+        # 或静默写入语义空 retraction → 200（假成功）；先形状校验统一 ValueError 映射 400
         if not isinstance(entries, list) or any(
                 not (isinstance(e, (list, tuple)) and len(e) == 2
                      and isinstance(e[0], str) and isinstance(e[1], str))
@@ -388,21 +388,22 @@ def create_app(project_root: str | Path,
     @app.post("/api/beats/merge", dependencies=[Depends(_require_write)])
     async def beats_merge(request: Request,
                           body: dict | None = None) -> dict[str, Any]:
-        """合并两拍（TC-SH-10）：源拍失效，伏笔引用与边有效期随迁；moved 为
-        beat_merged 事件 seq。"""
+        """合并两拍（TC-SH-10）：源拍失效，伏笔引用与边有效期随迁；event_seq
+        为 beat_merged 事件 seq（R5：两壳同形状）。"""
         api = request.app.state.api
         seq = api.merge_beats(_require(body, "source"),
                               _require(body, "target"))
-        return {"merged": True, "moved": seq}
+        return {"merged": True, "event_seq": seq}
 
     @app.post("/api/beats/delete", dependencies=[Depends(_require_write)])
     async def beats_delete(request: Request,
                            body: dict | None = None) -> dict[str, Any]:
-        """删除拍（TC-SH-10）：被伏笔引用拒绝（core ValueError → 400 detail）。"""
+        """删除拍（TC-SH-10）：被伏笔引用拒绝（core ValueError → 400 detail）；
+        event_seq 为 beat_deleted 事件 seq（R5：两壳同形状）。"""
         api = request.app.state.api
-        api.delete_beat(_require(body, "beat_id"),
-                        reason=(body or {}).get("reason"))
-        return {"deleted": True}
+        seq = api.delete_beat(_require(body, "beat_id"),
+                              reason=(body or {}).get("reason"))
+        return {"deleted": True, "event_seq": seq}
 
     # ---- 聊天代理（Task 8/W6）：SSE 流式 + 非流式聚合，backend 注入同 T6 ----
     # 进流前统一校验（空 message/畸形 history → 400）；触 db 端点保持 async def

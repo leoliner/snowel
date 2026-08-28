@@ -116,8 +116,15 @@ class SnowelAPI:
 
     # 混合检索（Task 5/6）：壳一比一映射的只读门面
     def search(self, q: str, mode: str = "hybrid", limit: int = 100) -> dict:
-        from .retrieval import hybrid
-        return hybrid.search(self._conn, q, limit, mode)
+        from .retrieval import audit, hybrid
+        out = hybrid.search(self._conn, q, limit, mode)
+        rewrite = out.pop("rewrite", None)
+        if rewrite is not None:
+            # TC-RT-07 条件审计：仅改写实际发生（生效/失败）落行；键剥除后
+            # 公开响应形状不变（{"nodes", "paragraphs"}）
+            audit.record(self._conn, "search", {"query": q}, False,
+                         {"sections": [], "rewrite": rewrite})
+        return out
 
     # 检索上下文审计（Task 6：TC-RT-02 排查面）
     def audit_recent(self, limit: int = 50) -> list[dict]:

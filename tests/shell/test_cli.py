@@ -8,7 +8,10 @@ from typer.testing import CliRunner
 
 from snowel.cli import app
 from snowel_core.api import SnowelAPI
-from snowel_core.consistency import engine
+# 预热 import rules：core 内置级联规则在 rules.py import 时注册；若首次 import
+# 发生在本文件某个 ext 用例内，_restore_ext_registries 的差分回退会把内置规则
+# 误判为用例污染清空，殃及同进程后续测试的 cascade 断言（如 test_mcp_server）
+from snowel_core.consistency import engine, rules
 from snowel_core.extensions import discovery
 from snowel_core.ontology import groups
 
@@ -172,6 +175,42 @@ def test_status_via_env_var(tmp_path, monkeypatch):
     monkeypatch.chdir(elsewhere)
     res = runner.invoke(app, ["status"])
     assert res.exit_code == 0
+
+
+# ---- mcp 子命令（R4/TC-SH-12：stdio 默认零变化；--http 显式开启；
+# 绑 0.0.0.0/:: 强制 --token 否则拒绝启动）----
+
+def test_mcp_command_wildcard_requires_token(monkeypatch):
+    captured = {}
+
+    def fake_main(**kw):
+        captured.update(kw)
+
+    monkeypatch.setattr("snowel.mcp_server.main", fake_main)
+
+    for bad_host in ("0.0.0.0", "::"):
+        res = runner.invoke(app, ["mcp", "--http", "--host", bad_host])
+        assert res.exit_code == 1
+        assert "token" in res.output
+
+    # 带 token → 守卫放行，token/host/http 原样透传 main
+    ok = runner.invoke(app, ["mcp", "--http", "--host", "0.0.0.0",
+                             "--token", "s3cret"])
+    assert ok.exit_code == 0
+    assert captured["http"] is True and captured["token"] == "s3cret"
+    assert captured["host"] == "0.0.0.0"
+
+    # 默认 host（loopback）无 token 不拦；host/port 默认值透传
+    loop = runner.invoke(app, ["mcp", "--http"])
+    assert loop.exit_code == 0
+    assert captured["host"] == "127.0.0.1" and captured["port"] == 8642
+    assert captured["token"] is None
+
+    # 无 --http → stdio 默认路径（http=False）；--project 语义与 web 命令同构
+    plain = runner.invoke(app, ["mcp", "-p", "some/proj"])
+    assert plain.exit_code == 0
+    assert captured["http"] is False
+    assert Path(captured["project"]) == Path("some/proj").resolve()
 
 
 # ---- ext 子命令组（TC-EX-01/03 出口面；hooks 引擎行为在 tests/extensions/）----
