@@ -1,21 +1,40 @@
 // 右栏工作区生成表单（E3 生成环）：artifact_type 七选一 + locate/extra JSON 附加字段
 // （解析失败内联报错不提交）→ POST /api/generate → onGenerated 回调新提案 pid。
+// T3 derive 联动（TC-SH-09 / R4）：自取 /api/inspirations 渲染灵感多选 chips，
+// 勾选后提交 body 带 derive_from: string[]（空选不含该键——与后端条件透传对齐）；
+// 无灵感数据时小节整体不渲染。
 import { useState } from 'react'
-import { api } from '../api'
-import type { GenerateResult } from '../types'
-import { ARTIFACT_LABELS, LAYERS } from './labels'
+import { api, useApi } from '../api'
+import type { GenerateResult, InspirationItem } from '../types'
+import { ARTIFACT_LABELS, INSPIRATION_LABELS, LAYERS } from './labels'
 
 interface GenerateFormProps {
   readonly?: boolean
   onGenerated: (proposalId: string) => void
+  // App 全局刷新键：灵感保存后递增 → chips 数据重拉（与 InspirationPanel 同步）
+  refreshKey?: number
 }
 
-export default function GenerateForm({ readonly = false, onGenerated }: GenerateFormProps) {
+export default function GenerateForm({
+  readonly = false,
+  onGenerated,
+  refreshKey = 0,
+}: GenerateFormProps) {
   const [artifactType, setArtifactType] = useState<string>(LAYERS[0])
   const [locate, setLocate] = useState('')
   const [extra, setExtra] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // 灵感多选（derive 数据流）：选中 id 集合，chips 勾选切换
+  const { data: insp } = useApi<InspirationItem[]>('/api/inspirations', refreshKey)
+  const inspirations = Array.isArray(insp) ? insp : []
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+
+  const toggleInspiration = (id: string) => {
+    setSelectedIds((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+    )
+  }
 
   const parseJson = (text: string, field: string): Record<string, unknown> | undefined => {
     if (text.trim() === '') return undefined
@@ -41,6 +60,7 @@ export default function GenerateForm({ readonly = false, onGenerated }: Generate
     try {
       const res = await api.post<GenerateResult>('/api/generate', {
         artifact_type: artifactType,
+        ...(selectedIds.length > 0 ? { derive_from: selectedIds } : {}),
         ...(locateObj !== undefined ? { locate: locateObj } : {}),
         ...(extraObj !== undefined ? { extra: extraObj } : {}),
       })
@@ -84,6 +104,34 @@ export default function GenerateForm({ readonly = false, onGenerated }: Generate
           {busy ? '生成中…' : '生成提案'}
         </button>
       </div>
+      {inspirations.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="text-xs text-muted">{INSPIRATION_LABELS.derive}</div>
+          <div className="flex flex-wrap gap-1">
+            {inspirations.map((item) => {
+              const active = selectedIds.includes(item.id)
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid="derive-chip"
+                  aria-pressed={active}
+                  disabled={readonly || busy}
+                  onClick={() => toggleInspiration(item.id)}
+                  title={item.text}
+                  className={`max-w-full truncate rounded-chip border px-2 py-0.5 text-xs ${
+                    active
+                      ? 'border-accent bg-accent/15 text-primary'
+                      : 'border-border bg-raised text-muted hover:text-primary'
+                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                >
+                  {item.text}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
       <label htmlFor="generate-locate" className="text-xs text-muted">
         locate（JSON，可选——定位上下文）
       </label>

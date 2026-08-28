@@ -1,4 +1,4 @@
-// 领域术语中文标签（单处维护，组件共用）：雪花七层 + 提案 kind
+// 领域术语中文标签（单处维护，组件共用）：雪花七层 + 提案 kind + 灵感面板
 import type { LayerKind, ProposalKind } from '../types'
 
 export const LAYERS: LayerKind[] = [
@@ -36,3 +36,11 @@ export const KIND_LABELS: Record<ProposalKind, string> = {
   revision: '修订',
   extract_facts: '事实抽取',
 }
+
+// 灵感面板（TC-SH-09 / R4）：面板标题/输入/按钮 + GenerateForm derive 小节标题
+export const INSPIRATION_LABELS = {
+  panelTitle: '灵感',
+  input: '灵感原话',
+  save: '保存灵感',
+  derive: '从灵感发起生成',
+} as const

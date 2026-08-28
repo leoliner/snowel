@@ -124,6 +124,23 @@ describe('T13 工作区 tab（提案/可视化互斥，ui-design-01 §3）', () 
   })
 })
 
+describe('T3 灵感面板挂载（TC-SH-09 / R4：proposals tab，GenerateForm 之上）', () => {
+  it('提案 tab 渲染灵感面板；写会话空文本 → 保存禁用（列表为空不炸——useApi 全路径 mock 兜底）', () => {
+    mockSession(writableSession)
+    render(<App />)
+    expect(screen.getByTestId('inspiration-panel')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存灵感' })).toBeDisabled()
+  })
+
+  it('只读会话 → 灵感面板 textarea 与保存按钮禁用（readonly 传递）', () => {
+    mockSession(readonlySession)
+    render(<App />)
+    expect(screen.getByTestId('inspiration-panel')).toBeInTheDocument()
+    expect(screen.getByLabelText('灵感原话')).toBeDisabled()
+    expect(screen.getByRole('button', { name: '保存灵感' })).toBeDisabled()
+  })
+})
+
 describe('T12 遗留：聊天入队提案 → 去确认（T13：切回"提案"tab + refreshKey）', () => {
   it('可视化 tab 下点"去确认"链接 → 切回"提案"tab + ProposalList/FlowTree 以新 key 重拉', async () => {
     mockSession(writableSession)

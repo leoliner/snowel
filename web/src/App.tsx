@@ -14,6 +14,7 @@ import FlowTree from './components/FlowTree'
 import ProposalList from './components/ProposalList'
 import ProposalPanel from './components/ProposalPanel'
 import GenerateForm from './components/GenerateForm'
+import InspirationPanel from './components/InspirationPanel'
 import ProseEditor from './components/ProseEditor'
 import ChatSidebar from './components/ChatSidebar'
 import VizPanel from './components/VizPanel'
@@ -142,7 +143,19 @@ export default function App() {
             ) : (
               <VizPanel activeTab={workspaceTab} onTabChange={setWorkspaceTab}>
                 <div className="flex flex-col gap-3">
-                  <GenerateForm readonly={readonly} onGenerated={setSelectedPid} />
+                  {/* T3（TC-SH-09 / R4）：灵感面板挂提案 tab GenerateForm 之上——
+                      derive 联动闭环在同一 tab；保存成功 → refreshKey 递增，
+                      面板列表与 GenerateForm 灵感 chips 同步重拉 */}
+                  <InspirationPanel
+                    readonly={readonly}
+                    refreshKey={refreshKey}
+                    onSaved={() => setRefreshKey((k) => k + 1)}
+                  />
+                  <GenerateForm
+                    readonly={readonly}
+                    refreshKey={refreshKey}
+                    onGenerated={setSelectedPid}
+                  />
                   <ProposalList
                     selectedId={selectedPid}
                     refreshKey={refreshKey}
