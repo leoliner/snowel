@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Snowel Web 重构 · 交互 Demo（完整版）</title>
+<style>
+:root{
+  --base:#17181c; --panel:#1e2026; --raised:#262933; --border:#33363f;
+  --text:#e8e6e1; --muted:#9a978f; --accent:#e0a04a; --accent-dim:#8a6526;
+  --ok:#7fb069; --warn:#d9a13d; --danger:#c96f5f; --info:#6f9fc9;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#101114;color:var(--text);font-family:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;font-size:14px;padding-bottom:70px}
+/* demo 工具条 */
+.dbar{position:sticky;top:0;z-index:99;background:#0c0d10;border-bottom:1px solid var(--border);padding:9px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.dbar h1{font-size:14px;color:var(--accent);font-weight:600}
+.dbar .sub{color:var(--muted);font-size:12px}
+.dbar .sp{flex:1}
+.dbtn{background:var(--raised);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+.dbtn:hover{color:var(--text)}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--muted);align-items:center}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.dot.g{background:var(--ok)} .dot.y{background:var(--warn)}
+/* 通用 */
+.page{width:1280px;margin:22px auto 0;background:var(--base);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+.btn{border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:13px;background:var(--raised);color:var(--text)}
+.btn.primary{background:var(--accent);color:#141414;font-weight:600}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.btn.sm{padding:4px 10px;font-size:12px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.tag{display:inline-block;font-size:11px;border-radius:4px;padding:1px 6px;margin-left:8px;vertical-align:2px}
+.tag.q{background:rgba(217,161,61,.15);color:var(--warn);border:1px solid rgba(217,161,61,.4)}
+.tag.new{background:rgba(111,159,201,.15);color:var(--info);border:1px solid rgba(111,159,201,.4)}
+.tag.ok2{background:rgba(127,176,105,.12);color:var(--ok);border:1px solid rgba(127,176,105,.35)}
+.chip{display:inline-block;border:1px solid var(--border);border-radius:14px;padding:3px 10px;font-size:12px;color:var(--muted);margin:0 6px 6px 0}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;background:var(--base);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:inherit}
+.field textarea{min-height:100px;resize:vertical;line-height:1.7}
+.row{display:flex;gap:10px;align-items:center;justify-content:flex-end}
+.note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.6}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px}
+.card h3{font-size:14px;margin-bottom:4px}
+.card .hint{font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px}
+.testok{display:flex;align-items:center;gap:8px;background:rgba(127,176,105,.12);border:1px solid rgba(127,176,105,.4);color:var(--ok);border-radius:6px;padding:8px 12px;font-size:13px;margin:6px 0 12px}
+/* 顶栏 */
+.topbar{height:48px;display:flex;align-items:center;gap:16px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--border);position:relative}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.brand .b{color:var(--accent)}
+.topmid{flex:1;text-align:center;color:var(--muted)}
+.topright{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted)}
+.pill{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px}
+/* 项目切换器 */
+.pswitch>button{display:flex;align-items:center;gap:8px;background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 12px;color:var(--text);font-size:14px;font-weight:600;cursor:pointer}
+.pmenu{display:none;position:absolute;top:44px;left:12px;width:310px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);z-index:60}
+.pmenu.on{display:block}
+.pmenu .mi{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px}
+.pmenu .mi:hover{background:var(--raised)}
+.pmenu .mi .meta{font-size:11px;color:var(--muted)}
+.pmenu .mi.cur{background:rgba(224,160,74,.08);border:1px solid var(--accent-dim)}
+.pmenu .new{border-top:1px solid var(--border);margin-top:8px;padding-top:10px;display:flex;gap:8px}
+.pmenu .new input{flex:1;background:var(--base);border:1px solid var(--border);border-radius:6px;padding:6px 9px;color:var(--text);font-size:12px}
+.iconbtn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer;font-size:15px}
+.iconbtn:hover{color:var(--text);background:var(--raised)}
+/* 设置模态 */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+.modal.on{display:flex}
+.mcard{width:520px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:24px;box-shadow:0 20px 80px rgba(0,0,0,.7)}
+.mcard h3{font-size:16px;margin-bottom:4px}
+.mcard .hint{font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:16px}
+/* 向导 */
+.wizard{padding:40px 56px;min-height:600px}
+.wizard h2{font-size:20px;margin-bottom:6px}
+.wizard .lead{color:var(--muted);margin-bottom:26px}
+.stepper{display:flex;margin-bottom:28px}
+.stepper .s{flex:1;text-align:center;font-size:12px;color:var(--muted);position:relative;padding-top:26px}
+.stepper .s::before{content:attr(data-n);position:absolute;top:0;left:50%;transform:translateX(-50%);width:20px;height:20px;line-height:20px;border-radius:50%;background:var(--raised);border:1px solid var(--border);font-size:11px}
+.stepper .s.done::before{content:"✓";background:var(--ok);border-color:var(--ok);color:#141414}
+.stepper .s.cur{color:var(--accent)}
+.stepper .s.cur::before{background:var(--accent);border-color:var(--accent);color:#141414;font-weight:700}
+.cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start}
+.shelf .bi{display:flex;justify-content:space-between;align-items:center;padding:9px 11px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer}
+.shelf .bi:hover{background:var(--raised)}
+.shelf .bi .t{font-size:13px}
+.shelf .bi .m{font-size:11px;color:var(--muted);margin-top:2px}
+.shelf .bi.cur{border-color:var(--accent-dim);background:rgba(224,160,74,.06)}
+.shelf .newb{display:flex;gap:8px;margin-top:12px}
+.shelf .newb input{flex:1;background:var(--base);border:1px solid var(--border);border-radius:6px;padding:7px 9px;color:var(--text);font-size:12px}
+/* 工作台 */
+.ws{display:grid;grid-template-columns:250px 1fr 380px;min-height:720px}
+.colL{background:var(--panel);border-right:1px solid var(--border);padding:14px}
+.colR{background:var(--panel);border-left:1px solid var(--border);padding:14px;display:flex;flex-direction:column;gap:14px}
+.sect{font-size:11px;letter-spacing:1px;color:var(--muted);margin:14px 0 8px;text-transform:uppercase}
+.sect:first-child{margin-top:0}
+.layer{border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:8px;background:var(--base);cursor:pointer}
+.layer:hover{border-color:var(--muted)}
+.layer .ln{display:flex;align-items:center;gap:8px;font-size:13px}
+.layer .st{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.layer.cur{border-color:var(--accent);background:rgba(224,160,74,.07)}
+.layer.cur .st{background:var(--accent)}
+.layer.done .st{background:var(--ok)}
+.layer.lock .st{background:var(--border)}
+.layer .todo{font-size:11px;color:var(--muted);margin-top:4px;padding-left:17px}
+.layer.cur .todo{color:var(--accent)}
+.concept{display:flex;flex-wrap:wrap;gap:6px}
+.gapline{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-top:6px}
+.mini{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;padding:3px 0}
+.colM{padding:18px 22px;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+.layerhead{display:flex;align-items:center;gap:12px}
+.layerhead .no{background:var(--accent-dim);color:var(--accent);font-size:11px;border-radius:4px;padding:2px 8px;font-weight:700}
+.layerhead .no.blue{background:rgba(111,159,201,.2);color:var(--info)}
+.layerhead h2{font-size:17px}
+.layerhead .sub2{color:var(--muted);font-size:12px;margin-left:auto}
+.softlock{font-size:12px;color:var(--warn);background:rgba(217,161,61,.08);border:1px dashed rgba(217,161,61,.4);border-radius:8px;padding:8px 13px}
+.nextbar{margin-top:auto;display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:13px 18px;cursor:default}
+.nextbar.lit{border-color:var(--ok);background:rgba(127,176,105,.06)}
+.nextbar .nx1{font-size:11px;color:var(--muted);letter-spacing:1px}
+.nextbar .nx2{font-size:14px;font-weight:600}
+.nextbar .grow{flex:1}
+.cascade{font-size:12px;color:var(--muted);background:var(--panel);border:1px dashed var(--border);border-radius:8px;padding:10px 14px;line-height:1.7}
+.cascade b{color:var(--text)}
+.lineage{font-size:11px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.lineage .edge{background:var(--raised);border-radius:4px;padding:1px 7px}
+.pcard{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+.pcard .ph{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:8px}
+.pcard .ph .v{color:var(--muted);font-weight:400;font-size:12px}
+.pcard p{font-size:13px;line-height:1.8;color:#cfccc4}
+.pcard .pf{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.merge{border:1px solid var(--accent);background:rgba(224,160,74,.06)}
+.pcard.ok2{border-color:rgba(127,176,105,.45)}
+.proposals2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.gapitem{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:11px 14px;margin-bottom:8px}
+.gapitem .gi{flex:1}
+.gapitem .gi .t{font-size:13px}
+.gapitem .gi .d{font-size:11px;color:var(--muted);margin-top:2px}
+.gapitem.done2{border-color:rgba(127,176,105,.4)}
+.gapitem.todo2{opacity:.62}
+.gapitem .impact{font-size:11px;color:var(--ok);margin-top:3px}
+.act{font-size:12px;color:var(--muted);margin:10px 0 8px;display:flex;align-items:center;gap:8px}
+.act b{color:var(--text)}
+.act .rule{flex:1;height:1px;background:var(--border)}
+.beats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.beat{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--panel);display:flex;gap:10px;align-items:flex-start}
+.beat .bn{font-size:12px;font-weight:700;color:var(--muted);background:var(--base);border-radius:6px;padding:3px 8px;flex-shrink:0}
+.beat.ok{border-color:rgba(127,176,105,.45)}
+.beat.ok .bn{color:var(--ok)}
+.beat .bt{flex:1;font-size:12px;line-height:1.6;color:#cfccc4}
+.beat .bmarks{margin-top:5px;display:flex;gap:6px;flex-wrap:wrap}
+.bm{font-size:10px;border-radius:4px;padding:1px 6px}
+.bm.f{background:rgba(217,161,61,.15);color:var(--warn)}
+.bm.d{background:rgba(201,111,95,.15);color:var(--danger)}
+.bm.s{background:rgba(111,159,201,.15);color:var(--info)}
+.beat .bops{display:flex;gap:5px;margin-top:7px}
+.roster{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.rc{border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;background:var(--panel)}
+.rc.on{border-color:var(--accent);background:rgba(224,160,74,.08);color:var(--accent)}
+.rc .rs{font-size:10px;color:var(--muted);display:block;margin-top:1px}
+.agroup{margin-bottom:12px}
+.agroup .agn{font-size:11px;letter-spacing:1px;color:var(--accent);margin-bottom:8px}
+.afields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.af{background:var(--base);border:1px solid var(--border);border-radius:8px;padding:9px 12px}
+.af .k{font-size:11px;color:var(--muted);margin-bottom:3px}
+.af .v{font-size:12px;line-height:1.6;color:#d8d5cd}
+.arc{display:flex;gap:0;margin:8px 0 2px}
+.arc .as{flex:1;position:relative;padding-top:18px;font-size:11px;color:var(--muted);text-align:center}
+.arc .as::before{content:"";position:absolute;top:5px;left:0;right:0;height:2px;background:var(--accent-dim)}
+.arc .as::after{content:"";position:absolute;top:1px;left:50%;transform:translateX(-50%);width:9px;height:9px;border-radius:50%;background:var(--accent)}
+.arc .as:first-child::before{left:50%} .arc .as:last-child::before{right:50%}
+.relcard{display:flex;align-items:center;gap:12px;background:var(--base);border:1px solid var(--border);border-radius:8px;padding:10px 13px;margin-bottom:8px}
+.relcard .rr{flex:1;font-size:12px}
+.relcard .rr .rk{color:var(--muted);font-size:11px;margin-top:2px}
+.pov{display:flex;flex-direction:column;gap:6px}
+.povr{display:flex;align-items:center;gap:10px;font-size:12px}
+.povr .pn{width:52px;color:var(--muted);flex-shrink:0}
+.povr .bar{height:14px;border-radius:4px;background:var(--accent-dim)}
+.scards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.scard{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:12px 14px}
+.scard.ok{border-color:rgba(127,176,105,.45)}
+.scard .sh{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:7px}
+.scard .sh .sid{color:var(--accent);font-size:11px;background:var(--accent-dim);border-radius:4px;padding:1px 7px}
+.scard .srow{font-size:11.5px;line-height:1.7;color:#c9c6be}
+.scard .srow b{color:var(--muted);font-weight:400;margin-right:4px}
+.scard .sf{display:flex;gap:6px;justify-content:flex-end;margin-top:9px}
+.tracktag{font-size:10px;border-radius:4px;padding:1px 6px;background:rgba(111,159,201,.15);color:var(--info)}
+.writegrid{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
+.ctx{font-size:11.5px;color:var(--muted);line-height:1.9}
+.ctx .ci{display:flex;gap:8px;align-items:baseline}
+.ctx .ci::before{content:"·";color:var(--accent)}
+.editor{border:1px solid var(--border);border-radius:10px;background:var(--panel);overflow:hidden}
+.editor .ehead{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.editor .ebody{padding:18px 20px;font-size:14px;line-height:2.1;color:#e2dfd8;min-height:220px;outline:none}
+.editor .efoot{display:flex;align-items:center;gap:10px;padding:9px 14px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+.savedot{width:7px;height:7px;border-radius:50%;background:var(--border);display:inline-block}
+.savedot.on{background:var(--warn)}
+.fsline{position:relative;margin:14px 0 6px;height:58px}
+.fsline .rail{position:absolute;top:24px;left:0;right:0;height:2px;background:var(--border)}
+.fnode{position:absolute;top:14px;width:20px;height:20px;border-radius:50%;background:var(--panel);border:2px solid var(--warn);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--warn)}
+.fnode.g{border-color:var(--ok);color:var(--ok)}
+.flab{position:absolute;top:46px;font-size:10px;color:var(--muted);transform:translateX(-50%)}
+.fcard{border:1px solid var(--border);border-radius:9px;padding:12px 14px;background:var(--panel);margin-bottom:10px}
+.fcard .fh{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600}
+.fcard .fst{font-size:11px;border-radius:4px;padding:1px 8px}
+.fcard .fst.open{background:rgba(217,161,61,.15);color:var(--warn)}
+.fcard .fst.paid{background:rgba(127,176,105,.12);color:var(--ok)}
+.fcard .fd{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.7}
+.audit{border:1px solid var(--border);border-radius:9px;padding:11px 13px;background:var(--panel);margin-bottom:8px;font-size:12px}
+.audit .ah{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-bottom:5px}
+.audit .ab{line-height:1.7;color:#cfccc4}
+.plist .pi{border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:12px}
+.plist .pi .pt{display:flex;justify-content:space-between;color:var(--text)}
+.plist .pi .pd{color:var(--muted);margin-top:3px;font-size:11px}
+.chatbox{background:var(--base);border:1px solid var(--border);border-radius:10px;min-height:110px;padding:10px;font-size:12px;color:var(--muted)}
+.chatmsg{background:var(--raised);border-radius:8px;padding:8px 10px;margin-bottom:8px;line-height:1.6;color:#cfccc4}
+.chatmsg.ai{background:rgba(111,159,201,.1);border:1px solid rgba(111,159,201,.3)}
+.chatinput{display:flex;gap:8px;margin-top:8px}
+.chatinput input{flex:1;background:var(--raised);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:12px}
+/* toast */
+#toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--raised);border:1px solid var(--accent);color:var(--text);padding:9px 18px;border-radius:8px;font-size:13px;box-shadow:0 10px 40px rgba(0,0,0,.6);z-index:200;display:none}
+.empty-big{border:1px dashed var(--border);border-radius:12px;padding:40px 30px;text-align:center;color:var(--muted)}
+.empty-big .et{font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<div class="dbar">
+  <h1>Snowel Web 重构 · 交互 Demo</h1>
+  <span class="sub">可真实操作：向导可走完 · 层可切换 · 提案/拍/缺口/场景卡可确认 · 书可切换 · 纯前端演示（刷新重置）</span>
+  <span class="sp"></span>
+  <div class="legend"><span><span class="dot g"></span>后端已有 API</span><span><span class="dot y"></span>后端缺口</span></div>
+  <button class="dbtn" onclick="goWizard()">重看向导</button>
+  <button class="dbtn" onclick="resetDemo()">重置演示</button>
+</div>
+
+<div id="app"></div>
+<div id="modal"></div>
+<div id="toast"></div>
+
+<script>
+/* ================= 数据 ================= */
+const BEATS = [
+ "凌晨 2:59 林晚猝死般惊醒，前世记忆归位",
+ "3:00 强制坠入「首夜」白雾广场，数十万人影，头顶悬浮排名",
+ "新手挑战「沉默房间」：濒死体质意外免疫判定，首次卡盲区|F:⚠ 埋伏笔 · 穿越者盲区",
+ "首次结算：排名 48 万+，奖励「哑铃铛」（无用物品?）|F:🔔 物品伏笔 · 拍 18 回收",
+ "日常崩塌开始：同事中也有被选中者",
+ "【灾难一】连垫底三月，额外时间延至 5h/天，现实开始“褪色”|D:灾难一",
+ "「回声长廊」结识联盟核心，垫底者抱团",
+ "垫底者互赠排名碎片微量续命，联盟雏形|S:🌱 排名套利 · 种子期",
+ "「殡仪馆」副本：扮演死者，全场只有他游刃有余——盲区第二次兑现|F:⚠ 盲区兑现",
+ "排名入前 1 万，获能力「时滞」；现实线：濒死体验者互助会",
+ "【灾难二】垫底者消失=寿命输送；最好的朋友即将垫底|D:灾难二",
+ "挽救失败，朋友（陈叠）消失",
+ "低谷抉择：独登顶 vs 联合垫底者",
+ "联盟正式化，排名套利升级为战略武器|S:🌱 排名套利 · 战略期",
+ "【灾难三】登顶条件曝光：盟主须献祭全部额外时间|D:灾难三",
+ "总攻：联盟操纵排名曲线，系统被迫超发寿命",
+ "规则反噬：林晚主动垫底，用盲区接住制度全部恶意|F:⚠ 盲区终局",
+ "筛选机制内爆；林晚失去额外时间，保留那枚哑铃铛|F:🔔 回收第 4 拍"
+];
+const ACTS = [[0,6,"第一幕 · 坠入"],[6,14,"第二幕 · 登顶线"],[14,18,"第三幕 · 撑爆它"]];
+
+function freshLinwan(){return{
+  name:"林晚·无限流", emoji:"📕", layer:2, sub:"summary", premise:false,
+  gaps:{g1:"done",g2:"open",g3:"open"},
+  beats:[true,true,true].concat(Array(14).fill(false)),
+  scenes:[true,false,false],
+  roster:"linwan",
+  proseDirty:false, proseSaved:false
+}}
+function freshXueguo(name){return{
+  name:name||"雪国", emoji:"📗", layer:1, empty:true, insp:"", inspSaved:false, premA:false, premise:false
+}}
+
+const S = {
+  screen:"wizard",
+  wizard:{ step:1, tested:false, book:"我的第一本书",
+    insp:"主角每天强制获得额外时间进入异空间，排名不达标则额外时间越来越长，直到永远回不来。" },
+  cur:"linwan",
+  view:"layer",
+  switcher:false, settings:false, tested2:false,
+  P:{ linwan:freshLinwan(), xueguo:freshXueguo() },
+  toastTimer:null
+};
+
+/* ================= 工具 ================= */
+const $ = id=>document.getElementById(id);
+function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;")}
+function toast(t){const el=$("toast");el.textContent=t;el.style.display="block";clearTimeout(S.toastTimer);S.toastTimer=setTimeout(()=>el.style.display="none",2200)}
+function P(){return S.P[S.cur]}
+function beatsOk(p){return Array.isArray(p.beats)&&p.beats.every(Boolean)}
+function unlockedMax(p){
+  if(p.empty) return 1;
+  if(p.layer<=1&&!p.premise) return 1;
+  if(!beatsOk(p)) return 2;
+  return 5; // 软引导：角色层之后全部可进（demo 预览）
+}
+function goWizard(){S.screen="wizard";S.wizard.step=1;render()}
+function resetDemo(){location.reload()}
+function topmid(p){
+  if(p.empty) return p.name+" · 灵感雪核";
+  if(!p.premise) return "灵感雪核 · 前提待确认";
+  if(p.layer===2&&p.sub==="beats") return "梗概层 · 节拍表确认中 "+p.beats.filter(Boolean).length+"/18";
+  if(p.layer===2) return "梗概 · 缺口待决 "+Object.values(p.gaps).filter(v=>v==="open").length;
+  return ["","灵感雪核","梗概 · 节拍表","角色层","场景层","正文层"][p.layer]+" · 写作中";
+}
+
+/* ================= 渲染 ================= */
+function render(){
+  $("app").innerHTML = S.screen==="wizard" ? rWizard() : rWs();
+  $("modal").innerHTML = rSettings();
+  document.querySelectorAll(".modal").forEach(m=>{if(S.settings)m.classList.add("on")});
+}
+
+/* ---------- 向导 ---------- */
+function rWizard(){
+  const w=S.wizard;
+  const st=[1,2,3,4].map(n=>{
+    const cls = n<w.step?"done":(n===w.step?"cur":"");
+    const label=["选书 / 新建","检查创作引擎","记下你的灵感","进入工作台"][n-1];
+    return `<div class="s ${cls}" data-n="${n}">${label}</div>`}).join("");
+  let body="";
+  if(w.step===1){
+    body=`<div class="cols3">
+      <div class="card shelf"><h3>书架 <span class="tag new">后端缺口：projects API</span></h3>
+        <div class="hint">一本书 = 一个项目。书架列出你写过的所有书，随时切回来。</div>
+        ${Object.entries(S.P).map(([id,p])=>`<div class="bi ${id===S.cur?"cur":""}" onclick="openBook('${id}')"><div><div class="t">${p.emoji} ${esc(p.name)}</div><div class="m">${p.meta||(p.empty?"灵感雪核 · 还没有产出":topmid(p))}</div></div><span style="color:var(--muted);font-size:11px">打开 ›</span></div>`).join("")}
+        <div class="bi" style="border-style:dashed"><div><div class="t">📂 打开其他目录…</div><div class="m">导入 CLI 创建的项目</div></div></div>
+        <div class="newb"><input id="wb-name" value="${esc(w.book)}" oninput="S.wizard.book=this.value"><button class="btn primary sm" onclick="wNew()">新建</button></div>
+        <div class="note">新建 = POST /api/projects {"name":"…"}；书统一落书架目录，CLI 建的项目可导入。</div>
+      </div>
+      <div class="card"><h3>检查创作引擎 <span class="tag new">llm-config API</span> <span class="tag q">配置随书存（Q2）</span></h3>
+        <div class="hint">每本书有独立的模型配置。也可以以后从右上角 ⚙ 修改。</div>
+        <div class="field"><label>接入方式</label><select><option>DeepSeek</option><option>OpenAI 兼容</option><option>Anthropic</option></select></div>
+        <div class="field" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div><label>API Key</label><input type="password" value="sk-••••••••••••"></div>
+        <div><label>模型</label><select><option>deepseek-chat</option></select></div></div>
+        ${w.tested?`<div class="testok">✓ 连接成功 · deepseek-chat · 首字 0.8s</div>`:""}
+        <div class="row"><button class="btn ghost sm" onclick="wTest()">测试连接</button><button class="btn primary" onclick="wGoto(3)">下一步：记下灵感 →</button></div>
+      </div>
+      <div class="card"><h3>记下你的灵感 <span class="tag ok2">已有 API</span></h3>
+        <div class="hint">用几句话说说你想写什么。原话永久存档——之后的一切产出都能追溯到它。</div>
+        <div class="field"><textarea oninput="S.wizard.insp=this.value">${esc(w.insp)}</textarea></div>
+        <div class="row"><button class="btn ghost sm">只存灵感</button><button class="btn primary sm" onclick="wFinish()">保存并生成「前提」→</button></div>
+      </div></div>`;
+  }
+  return `<div class="page"><div class="topbar">
+      <div class="brand"><span class="b">●</span> Snowel</div><div class="topmid">创作向导</div>
+      <div class="topright"><span class="pill"><span class="dot" style="background:var(--warn)"></span>模型未配置</span></div></div>
+    <div class="wizard"><h2>开始写作</h2>
+    <div class="lead">四步开工：选书或建书 → 确认创作引擎 → 记下灵感 → 雪花法逐层展开。</div>
+    <div class="stepper">${st}</div>${body}
+    <div class="note" style="margin-top:22px">提示：书架里点「林晚·无限流」可以直接进入推进中的工作台；新建一本书则体验从零开始的完整流程。</div></div></div>`;
+}
+function wGoto(n){S.wizard.step=n;render()}
+function wTest(){S.wizard.tested=true;toast("✓ 连接成功（演示）");render()}
+function wNew(){const n=($("#wb-name")||{}).value||S.wizard.book;const id="bk"+Date.now();S.P[id]=freshXueguo(n);S.cur=id;S.wizard.tested=true;wGoto(3);toast("已创建《"+n+"》")}
+function openBook(id){S.cur=id;S.screen="ws";S.view="layer";render()}
+function wFinish(){const n=S.wizard.book||"我的第一本书";const id="bk"+Date.now();S.P[id]=freshXueguo(n);if(S.P[id].inspSaved===false){S.P[id].insp=S.wizard.insp}S.cur=id;S.screen="ws";S.view="layer";toast("灵感已存档，前提提案已生成");render()}
+
+/* ---------- 工作台 ---------- */
+function rWs(){
+  const p=P();
+  return `<div class="page"><div class="topbar">
+    <div class="pswitch"><button onclick="S.switcher=!S.switcher;render()">${p.emoji} ${esc(p.name)} <span style="color:var(--muted);font-size:11px">▾</span></button>
+      <div class="pmenu ${S.switcher?"on":""}">
+        ${Object.entries(S.P).map(([id,x])=>`<div class="mi ${id===S.cur?"cur":""}" onclick="switchBook('${id}')"><span>${x.emoji} ${esc(x.name)}</span><span class="meta">${x.empty?"灵感雪核":["","L1","L2","L3","L4","L5"][x.layer]}</span></div>`).join("")}
+        <div class="mi" onclick="S.switcher=false;goWizard()"><span>➕ 新建一本书（向导）</span></div>
+        <div class="new"><input placeholder="新书名字" id="qn"><button class="btn primary sm" onclick="quickNew()">新建</button></div>
+      </div></div>
+    <div class="topmid">${topmid(p)}</div>
+    <div class="topright">
+      <span class="pill"><span class="dot" style="background:var(--ok)"></span>deepseek-chat</span>
+      <button class="iconbtn" title="设置" onclick="S.settings=true;render()">⚙</button>
+      <span class="pill"><span class="dot" style="background:var(--ok)"></span>写会话</span>
+      <span>？</span>
+    </div></div>
+  <div class="ws">${rColL(p)}${rColM(p)}${rColR(p)}</div></div>`;
+}
+function switchBook(id){S.cur=id;S.switcher=false;S.view="layer";render()}
+function quickNew(){const n=($("#qn")||{}).value;if(!n)return toast("先输入书名");const id="bk"+Date.now();S.P[id]=freshXueguo(n);S.cur=id;S.switcher=false;S.view="layer";render();toast("已创建《"+n+"》")}
+
+function rColL(p){
+  const um=unlockedMax(p);
+  const names=["① 灵感雪核","② 梗概 · 节拍表","③ 角色","④ 场景","⑤ 正文"];
+  const todos=[];
+  names.forEach((nm,i)=>{
+    const L=i+1;let cls="",todo="";
+    if(p.empty&&L===1){cls="cur";todo=p.inspSaved?"灵感已存 · 生成前提提案":"记下第一句灵感"}
+    else if(L===1){cls=p.premise?"done":"cur";todo=p.premise?"✓ Premise v1 · 4 概念":"1 个前提提案待确认"}
+    else if(L===2){if(p.empty){cls="lock"}else{cls=beatsOk(p)?"done":(p.premise?"cur":"lock");todo=beatsOk(p)?"✓ 18/18 拍":(p.premise?`节拍表 ${p.beats.filter(Boolean).length}/18 · 缺口 ${Object.values(p.gaps).filter(v=>v==="open").length} 待决`:"完成前提后解锁")}}
+    else if(L===3){cls=p.layer>3?"done":"";todo=p.layer===3?"林晚 profiled · 关系 ×2":""}
+    else if(L===4){cls=p.layer>4?"done":"";todo=p.layer===4?`场景卡 ${2+p.scenes.filter(Boolean).length-1}/45 确认中`:""}
+    else if(L===5){cls=p.layer===5?"cur":"";todo=p.layer===5?(p.proseDirty?"有未保存修改":"场景 1.1 写作中"):""}
+    todos.push(`<div class="layer ${cls}" onclick="gotoLayer(${L})"><div class="ln"><span class="st"></span>${nm}</div>${todo?`<div class="todo">${todo}</div>`:""}</div>`)});
+  const concepts=p.empty?(p.inspSaved?["（待抽取）"]:[]):["异空间","额外时间","排名制度","奖励体系"].concat(p.gaps.g1==="done"?["曾濒死体验"]:[]).concat(p.gaps.g2==="done"?["寿命输送"]:[]);
+  return `<div class="colL">
+    <div class="sect">雪花进度 <span class="tag q">核心重构①</span></div>${todos.join("")}
+    ${S.cur==="linwan"?`
+    <div class="sect">设定轨道 <span class="tag q">纵贯</span></div>
+    <div class="concept">${concepts.map(c=>`<span class="chip">${c}</span>`).join("")}</div>
+    <div class="gapline"><span style="color:var(--warn)">◐</span> 缺口 ${Object.values(p.gaps).filter(v=>v!=="done").length} · 已填 ${Object.values(p.gaps).filter(v=>v==="done").length}</div>
+    <div class="sect">伏笔 · 2 未回收</div>
+    <div class="mini"><span>⚠ 穿越者盲区</span><span>拍 3 埋</span></div>
+    <div class="mini"><span>🔔 哑铃铛</span><span>4 埋 → 18 收</span></div>
+    <div class="mini"><span>⚠ 最终规则漏洞</span><span>拍 17 兑现</span></div>`
+    :`<div class="sect">设定轨道</div><div class="gapline">还没有设定产出——生成时自动抽取概念节点</div>`}
+    <div class="sect">视图</div>
+    <div class="mini" style="cursor:pointer;color:var(--info)" onclick="S.view='foreshadow';render()">🗺 伏笔地图 · 检索审计 →</div>
+  </div>`;
+}
+function gotoLayer(L){
+  const p=P();
+  if(L===2&&!p.premise&&!p.empty){toast("先确认前提提案，再进入梗概层");return}
+  if(p.empty&&L>1){toast("先记下灵感、确认前提，再推进后面的层");return}
+  p.layer=L;if(L===2)p.sub="summary";S.view="layer";render();window.scrollTo(0,0);
+}
+
+/* ---------- 中栏 ---------- */
+function rColM(p){
+  if(S.view==="foreshadow") return rForeshadow(p);
+  if(p.empty) return rEmpty(p);
+  return [rL1,rL2,rL3,rL4,rL5][p.layer-1](p);
+}
+function rEmpty(p){
+  return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 1</span><h2>灵感雪核</h2><span class="sub2">这本书的第一句话</span></div>
+    <div class="empty-big">
+      <div class="et">用几句话，写下你想写的故事</div>
+      <div style="max-width:560px;margin:0 auto 16px;text-align:left">
+        <textarea class="field" style="width:100%" rows="4" id="ei" placeholder="例：主角每天强制获得额外时间进入异空间……" oninput="P().insp=this.value">${esc(p.insp||"")}</textarea>
+      </div>
+      ${p.inspSaved?`<div class="testok" style="max-width:560px;margin:0 auto 14px;text-align:left">✓ 灵感已存档（POST /api/inspirations）——原话永久保留</div>
+        ${p.premA?`<div class="card merge" style="max-width:560px;margin:0 auto;text-align:left"><div class="ph">前提 · 提案 A <span class="v">premise · derive_from 灵感</span></div><p>${esc(p.insp.slice(0,60))}……（AI 提炼的一句话前提，演示数据）</p><div class="pf"><button class="btn primary sm" onclick="xConfirm()">✓ 确认这一版</button></div></div>`
+        :`<button class="btn primary" onclick="xGen()">生成前提提案 →</button>`}`
+      :`<button class="btn primary" onclick="xSave()">保存灵感</button>
+        <div class="note" style="text-align:center">保存后可一键生成前提提案（POST /api/generate, derive_from=灵感id）</div>`}
+    </div></div>`;
+}
+function xSave(){const p=P();if(!(p.insp||"").trim())return toast("先写点什么");p.inspSaved=true;render();toast("灵感已存档")}
+function xGen(){const p=P();p.premA=true;render();toast("前提提案已生成（演示）")}
+function xConfirm(){const p=P();p.premise=true;p.empty=false;p.premA=false;p.layer=2;p.sub="summary";
+  p.gaps={g1:"done",g2:"open",g3:"open"};p.beats=Array(18).fill(false);p.scenes=[false,false,false];render();toast("Premise v1 已确认")}
+
+function rL1(p){
+  if(p.premise) return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 1</span><h2>灵感雪核</h2><span class="sub2">这一层已完成</span></div>
+    <div class="pcard ok2"><div class="ph">Premise v1 <span class="v">confirmed · 合并自 A、B</span></div>
+      <p>一个普通人被迫每天坠入不断延长的异空间挑战赛，他发现排名制度的真相是一场跨越现实与异界的筛选——他必须赢下这场自己从未同意参加的游戏，否则终有一天将永远回不到现实。</p>
+      <div class="lineage">血缘：<span class="edge">DERIVED_FROM 灵感原话</span><span class="edge">合并自 A、B</span></div></div>
+    <div class="cascade">确认时已：<b>物化 Premise v1</b> · 派生 <b>4 个设定概念</b> · 建 5 条 DERIVED_FROM/INTRODUCES 边 · 无矛盾警告</div>
+    <div class="nextbar lit"><div><div class="nx1">NEXT</div><div class="nx2">② 生成一段式摘要</div></div><div class="grow"></div><button class="btn primary" onclick="gotoLayer(2)">进入梗概层 →</button></div></div>`;
+  return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 1</span><h2>灵感雪核</h2><span class="sub2">这一层要完成：把灵感原话凝成一句前提</span></div>
+    <div class="cascade"><b>灵感原话</b>（永久存档 · 点击展开全文）——"主角每天强制获得额外时间进入异空间……直到永远回不来。" <u style="color:var(--info)">查看来自此灵感的全部产出</u></div>
+    <div class="proposals2">
+      <div class="pcard"><div class="ph">提案 A <span class="v">premise · AI 生成</span></div><p>一个普通人被迫卷入以寿命为筹码的异空间排名游戏，他必须在规则碾碎自己之前，找到那条没人走过的生路。</p><div class="pf"><button class="btn sm ghost" onclick="toast('改写：POST /api/proposals/{pid}/rewrite（演示）')">改写</button></div></div>
+      <div class="pcard"><div class="ph">提案 B <span class="v">premise · AI 生成</span></div><p>每天凌晨三点，林晚被拖入不断延长的异空间挑战赛；排名不达标的人，正在一个接一个地"回不来"。</p><div class="pf"><button class="btn sm ghost" onclick="toast('改写：POST /api/proposals/{pid}/rewrite（演示）')">改写</button></div></div>
+    </div>
+    <div class="pcard merge"><div class="ph">A + B 合并为最终前提 <span class="tag q">合并确认（后端面待扩）</span></div>
+      <p contenteditable style="outline:none">一个普通人被迫每天坠入不断延长的异空间挑战赛，他发现排名制度的真相是一场跨越现实与异界的筛选——他必须赢下这场自己从未同意参加的游戏，否则终有一天将永远回不到现实。</p>
+      <div class="lineage">血缘：<span class="edge">DERIVED_FROM 灵感原话</span><span class="edge">合并自 A、B</span><span class="edge">v1</span></div>
+      <div class="pf"><button class="btn sm ghost">直接改文字</button><button class="btn sm primary" onclick="l1Confirm()">✓ 确认这一版</button></div></div>
+    <div class="cascade">确认时将：<b>物化 Premise v1</b> · 派生 <b>4 个设定概念</b>（异空间/额外时间/排名制度/奖励体系）· 建 5 条边 · 无矛盾警告</div>
+    <div class="nextbar"><div><div class="nx1">NEXT</div><div class="nx2">② 生成一段式摘要</div></div><div class="grow"></div><span style="font-size:12px;color:var(--muted)">确认前提后可用</span><button class="btn" disabled>生成 →</button></div></div>`;
+}
+function l1Confirm(){P().premise=true;render();toast("✓ Premise v1 已确认 · 4 概念派生")}
+
+function rL2(p){
+  if(p.sub==="beats") return rBeats(p);
+  if(S.cur!=="linwan"){
+    return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 2</span><h2>梗概 · 一段式摘要</h2><span class="sub2">五句式摘要 + 缺口裁决 + 18 拍节拍表</span></div>
+    <div class="pcard"><div class="ph">摘要 <span class="v">待生成</span></div>
+      <p style="color:var(--muted)">点右栏「生成提案」（类型=摘要）后，五句式摘要会以提案形式出现在这里等你裁决——（演示数据到此为止，完整推进态去「林晚·无限流」看）。</p></div>
+    <div class="nextbar"><div><div class="nx1">NEXT</div><div class="nx2">② 生成一段式摘要</div></div><div class="grow"></div>
+      <button class="btn" onclick="toast('POST /api/generate（演示）')">生成 →</button></div></div>`;
+  }
+  const gap=(id,t,d,extra)=>{
+    const st=p.gaps[id];
+    const cls=st==="done"?"done2":(st==="todo"?"todo2":"");
+    let right="";
+    if(st==="open") right=`<button class="btn sm" onclick="gapSet('${id}','done')">填入设定</button><button class="btn sm primary" onclick="gapSet('${id}','todo')">标记 TODO</button>`;
+    if(st==="done") right=`<button class="btn sm ghost" onclick="gapSet('${id}','open')">撤销</button>`;
+    if(st==="todo") right=`<button class="btn sm ghost" onclick="gapSet('${id}','open')">重新打开</button>`;
+    const impact=st==="done"?`<div class="impact">✓ 已填 → 新建概念节点 · 缺口关闭 · 图谱 +1 节点（sim #7 回显影响）</div>`:"";
+    const todoTag=st==="todo"?`<span class="tag q">TODO · 正文期回写补全</span>`:"";
+    return `<div class="gapitem ${cls}"><div class="gi"><div class="t">${t} ${todoTag}</div><div class="d">${d}</div>${impact}</div><div style="display:flex;gap:8px">${right}</div></div>`};
+  const allDecided=Object.values(p.gaps).every(v=>v!=="open");
+  return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 2</span><h2>梗概 · 一段式摘要</h2><span class="sub2">五句式摘要 + 缺口裁决 + 18 拍节拍表</span></div>
+    <div class="pcard"><div class="ph">摘要 v2 <span class="v">confirmed · 五句式</span></div>
+      <p>每天凌晨三点，林晚被拖入异空间，数十万"被选中者"靠挑战争夺排名……最终林晚以"额外时间"为赌注，联合垫底者联盟从制度内部撑爆筛选机制。</p>
+      <div class="lineage">血缘：<span class="edge">DERIVED_FROM Premise v1</span><span class="edge">v2 ← v1 级联修订（机制重定位）</span></div></div>
+    <div class="sect" style="margin:0">设定缺口 · AI 发现了它不确定的地方，等你裁决（不替你补）</div>
+    ${gap("g1","① 主角为何能免疫末位惩罚？","已填「曾濒死体验」——填缺口自动生成新 Concept 节点")}
+    ${gap("g2","② 垫底者「消失」的实际机制细节","留待正文期回写补全，不阻塞大纲")}
+    ${gap("g3","③ 排名曲线的具体数值规则","数值型机制建议声明护栏（growth_curve）")}
+    <div class="nextbar ${allDecided?"lit":""}"><div><div class="nx1">NEXT</div><div class="nx2">② 生成 18 拍节拍表</div></div><div class="grow"></div>
+      <span style="font-size:12px;color:${allDecided?"var(--ok)":"var(--muted)"}">${allDecided?"缺口已裁决，可以生成":"还有缺口待裁决（也可先看节拍表）"}</span>
+      <button class="btn ${allDecided?"primary":""}" onclick="openBeats()">${allDecided?"生成 →":"先看看节拍表 →"}</button></div></div>`;
+}
+function openBeats(){P().sub="beats";render();window.scrollTo(0,0)}
+function gapSet(id,v){P().gaps[id]=v;render();if(v==="done")toast("已填入 · 图谱 +1 概念节点")}
+const bmHtml=s=>!s?"":s.split("|").map(m=>{const[k,v]=m.split(":");return `<span class="bm ${k}">${v}</span>`}).join("");
+function rBeats(p){
+  const ok=p.beats.filter(Boolean).length; const all=ok===18;
+  const grid=ACTS.map(([a,b,nm])=>{
+    const cnt=p.beats.slice(a,b).filter(Boolean).length;
+    const cards=BEATS.slice(a,b).map((t,i)=>{
+      const idx=a+i;const done=p.beats[idx];
+      const [txt,marks]=t.split("|");
+      return `<div class="beat ${done?"ok":""}"><span class="bn">${idx+1}</span><div class="bt">${esc(txt)}
+        ${marks?`<div class="bmarks">${bmHtml(marks)}</div>`:""}
+        ${done?"":`<div class="bops"><button class="btn sm primary" onclick="beatOk(${idx})">✓ 确认</button><button class="btn sm ghost" onclick="toast('改写：rewrite（演示）')">改写</button></div>`}</div></div>`}).join("");
+    return `<div class="act"><b>${nm}</b><span class="rule"></span><span>${cnt}/${b-a} 确认</span></div><div class="beats">${cards}</div>`}).join("");
+  return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 2</span><h2>节拍表 · 三幕 18 拍</h2><span class="sub2">逐拍裁决：确认 / 改写 / 合并（sim #21）· 已确认 ${ok}/18</span></div>
+    ${grid}
+    <div class="cascade">每拍确认时：<b>物化 Beat 节点</b> · DERIVED_FROM 摘要对应句 · 伏笔 PLANTS/DEVELOPS 边随拍落库。</div>
+    <div class="nextbar ${all?"lit":""}"><div><div class="nx1">NEXT</div><div class="nx2">③ 角色层（18/18 后解锁）</div></div><div class="grow"></div>
+      ${all?"":`<button class="btn sm ghost" onclick="allBeats()">全部确认</button>`}
+      <button class="btn ${all?"primary":""}" onclick="${all?"gotoLayer(3)":"toast('先确认全部 18 拍')"}">进入角色层 →</button></div></div>`;
+}
+function beatOk(i){P().beats[i]=true;render()}
+function allBeats(){P().beats=P().beats.map(()=>true);render();toast("18 拍全部确认 · 角色层已解锁")}
+
+function rL3(p){
+  const r=p.roster;
+  const linwan=`<div class="card">
+      <div class="agroup"><div class="agn">核心组 · 全题材常驻</div><div class="afields">
+        <div class="af"><div class="k">动机</div><div class="v">表层：活下去夺回正常生活；深层：在两个世界都"死过一次"的人，想要一个不会随时被没收的归属</div></div>
+        <div class="af"><div class="k">谎言信念</div><div class="v">"我只是侥幸活下来的局外人，任何制度都与我无关"——全书弧光就是砸碎这句</div></div>
+        <div class="af"><div class="k">恐惧</div><div class="v">不是死亡，是"消失得无声无息"——垫底者命运的镜像</div></div>
+        <div class="af"><div class="k">弧光</div><div class="v">卡盲区独活 → 目睹朋友消失 → 发现"局外人"是逃避 → 选择成为制度的靶心</div></div></div>
+        <div class="arc"><div class="as">卡盲区独活</div><div class="as">朋友消失</div><div class="as">发现谎言</div><div class="as">成为靶心</div></div></div>
+      <div class="agroup"><div class="agn">无限流组 · 扩展包</div><div class="afields">
+        <div class="af"><div class="k">空间资历</div><div class="v">首夜起</div></div>
+        <div class="af"><div class="k">排名轨迹</div><div class="v">48万 → 1万 → 主动垫底（全书唯一主动下坠的轨迹线）</div></div>
+        <div class="af"><div class="k">能力清单</div><div class="v">时滞（拍 10）</div></div>
+        <div class="af"><div class="k">盲区特权</div><div class="v">濒死体验者 · 末位惩罚天然失效</div></div></div></div>
+      <div class="agroup" style="margin-bottom:4px"><div class="agn">社会组</div><div class="afields">
+        <div class="af"><div class="k">现实身份</div><div class="v">外包程序员，社保断缴边缘</div></div>
+        <div class="af"><div class="k">现实线牵绊</div><div class="v">濒死体验者互助会 · 陈叠（拍 12 亡）</div></div></div></div></div>
+    <div class="sect" style="margin:2px 0 8px">关系（Relationship 是节点：带起止拍与强度曲线，sim #17）</div>
+    <div class="relcard"><div class="rr"><b>林晚 ←→ 陈叠</b> · 挚友</div><div class="rr rk">拍 5 起 · 强度 ████████░░ → 拍 12 终止（death_beat 锁定）</div><button class="btn sm ghost" onclick="toast('关系时间线（演示）')">时间线</button></div>
+    <div class="relcard"><div class="rr"><b>林晚 → 排名制度</b> · EMBODY 反抗对象</div><div class="rr rk">制度型反派：Concept + Character 双重类型（sim #18）</div><button class="btn sm ghost" onclick="toast('图谱视图（演示）')">图谱</button></div>`;
+  const chen=`<div class="card"><div class="agroup"><div class="agn">核心组（draft → 待 profile）</div><div class="afields">
+      <div class="af"><div class="k">动机</div><div class="v">陪林晚活到现实线重开的那天（草稿）</div></div>
+      <div class="af"><div class="k">死亡锁定</div><div class="v">death_beat = 拍 12（挽救失败）——之后任何改拍 12 前的提案都会触发级联检查</div></div></div></div>
+      <div class="cascade" style="margin-top:10px">草稿角色不阻塞推进（软引导 D1）——可在正文期由回写环补全。</div></div>`;
+  return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 3</span><h2>角色档案 · ${r==="linwan"?"林晚":"陈叠"}</h2><span class="sub2">人物模板 = 属性组拼装（sim #16），不是整模板替换</span></div>
+    <div class="roster">
+      <div class="rc ${r==="linwan"?"on":""}" onclick="P().roster='linwan';render()">林晚<span class="rs">主角 · profiled</span></div>
+      <div class="rc ${r==="chen"?"on":""}" onclick="P().roster='chen';render()">陈叠<span class="rs">挚友 · draft</span></div>
+      <div class="rc" onclick="toast('联盟核心 ×3 / 排名制度（演示静态）')">联盟核心<span class="rs">×3 · draft</span></div>
+      <div class="rc" onclick="toast('制度型反派：Concept+Character 混合建模（演示静态）')">排名制度<span class="rs">反派 · 混合</span></div>
+    </div>
+    ${r==="linwan"?linwan:chen}
+    <div class="nextbar lit"><div><div class="nx1">NEXT</div><div class="nx2">④ 场景层</div></div><div class="grow"></div>
+      <span style="font-size:12px;color:var(--ok)">主角 profiled，配角可滚动补</span>
+      <button class="btn primary" onclick="gotoLayer(4)">进入场景层 →</button></div></div>`;
+}
+
+function rL4(p){
+  const confirmed=2+p.scenes.filter(Boolean).length-1+ (p.scenes[0]?0:0);
+  const cnt=1+p.scenes.filter(Boolean).length;
+  const sc=(i,sid,title,track,rows)=>{
+    const done=p.scenes[i];
+    return `<div class="scard ${done?"ok":""}"><div class="sh"><span class="sid">${sid}</span>${title} <span class="tracktag">${track}</span>${done?`<span class="tag ok2" style="margin-left:auto">已确认</span>`:`<span class="tag q" style="margin-left:auto">待确认</span>`}</div>
+      ${rows.map(([k,v])=>`<div class="srow"><b>${k}</b>${v}</div>`).join("")}
+      ${done?"":`<div class="sf"><button class="btn sm ghost" onclick="toast('并卡（演示）')">并卡</button><button class="btn sm primary" onclick="sceneOk(${i})">✓ 确认</button></div>`}</div>`};
+  return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 4</span><h2>场景脉络 · 拍 → 场景卡</h2><span class="sub2">1 拍 ≈ 1–4 卡 · 每卡五要素 · 逐卡确认/合并 · ${cnt}/45</span></div>
+    <div class="cascade">拍 1 → <b>场景 1.1「2:59」</b>（1 卡）· 拍 4 → <b>4.1「首结算」+ 4.2「哑铃铛」</b>（2 卡）· 伏笔定位自动从拍层传播到场景层</div>
+    <div class="scards">
+      ${sc(0,"1.1","2:59","现实轨",[["POV","林晚"],["目的","建立「双世记忆」的错位感与日常崩塌前的最后平静"],["转折","锁屏跳向 3:00 —— 世界熄灭"],["钩子","头顶悬浮的排名公示"]])}
+      ${sc(1,"1.2","首夜广场","异空间轨 · 4h",[["POV","林晚"],["目的","展示规则规模：数十万被选中者与排名压制"],["转折","排名公布：垫底区闪红"],["钩子","「沉默房间」挑战邀请浮现"]])}
+      ${sc(2,"4.2","哑铃铛","异空间轨",[["POV","林晚"],["目的","埋物品伏笔：无用的奖励与它的重量"],["钩子","铛身刻着一行几乎磨平的小字"]])}
+      <div class="scard" style="border-style:dashed;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px">+ ${45-cnt} 卡 · 滚动展开（按拍生成，不必一次排完）</div>
+    </div>
+    <div class="nextbar lit"><div><div class="nx1">NEXT</div><div class="nx2">⑤ 正文层（首批场景卡确认后即可开写）</div></div><div class="grow"></div>
+      <button class="btn primary" onclick="gotoLayer(5)">进入正文层 →</button></div></div>`;
+}
+function sceneOk(i){P().scenes[i]=true;render();toast("场景卡已确认 · 伏笔定位已传播")}
+
+function rL5(p){
+  return `<div class="colM">
+    <div class="layerhead"><span class="no">LAYER 5</span><h2>正文 · 场景 1.1「2:59」</h2><span class="sub2">写前看上下文 · 写后回写图谱</span></div>
+    <div class="card"><div class="layerhead" style="margin-bottom:8px"><span class="no blue">CONTEXT</span><b style="font-size:13px">AI 将看到什么（约 800 token）</b><span class="sub2"><u style="color:var(--info);cursor:pointer" onclick="S.view='foreshadow';render()">检索审计</u>（sim #27）</span></div>
+      <div class="ctx">
+        <div class="ci">场景卡 1.1 五要素（精确拉取）</div>
+        <div class="ci">林晚档案 · 按需裁剪：核心组全量 + 无限流组（资历/盲区特权）——社会组本场景不注入</div>
+        <div class="ci">在场角色：林晚（独场）</div>
+        <div class="ci">未回收伏笔 ∩ 相关：「穿越者盲区」（拍 3 已埋）—— TODO 项已排除</div>
+        <div class="ci">已确认世界观：异空间 / 额外时间 / 排名制度</div>
+        <div class="ci" style="color:var(--muted)">向量召回：正文库为空 → 0 条</div></div></div>
+    <div class="editor">
+      <div class="ehead"><b style="color:var(--text)">第 1 章 · 2:59</b><span>草稿提案 · 可直接编辑</span>
+        <span style="margin-left:auto"><span class="savedot ${p.proseDirty?"on":""}"></span> <span id="prose-state">${p.proseDirty?"有未保存修改":(p.proseSaved?"已入队":"未修改")}</span></span>
+        <button class="btn sm ghost" onclick="toast('AI 续写：走 /api/generate 正文提案（演示）')">AI 续写</button>
+        <button class="btn sm primary" onclick="saveProse()">保存</button></div>
+      <div class="ebody" contenteditable="true" oninput="proseInput()">凌晨两点五十九分，林晚在工位上醒来。<br><br>颈椎发出久坐者熟悉的、细小的抗议。显示器的休眠光标一闪一闪，像某种耐心的倒计时。他记得自己刚才在改一个永远改不完的报错——不对，他记得的东西比这多得多。多得不正常。<br><br>一整个世界。<br><br>手机在桌上震动了一下。锁屏时间跳向三点整。</div>
+      <div class="efoot">保存 = 创建正文提案 → 确认后写入文件镜像（C1 确认即代写）· 切章有未保存修改会先确认</div></div>
+    <div class="cascade"><b>回写环（写后）</b>：抽取 3 条 —— ①「67 年前世婚姻」即兴新细节 → <b>高敏感 · 分级提案待确认</b>（sim #24）② 位置变更 → 状态账本 ③ 与已确认设定一致 → 忽略。<u style="color:var(--info);cursor:pointer" onclick="toast('回写队列（演示）')">查看回写队列</u></div>
+    <div class="nextbar lit"><div><div class="nx1">NEXT</div><div class="nx2">场景 1.2「首夜广场」</div></div><div class="grow"></div>
+      <span style="font-size:12px;color:var(--ok)">确认 1.1 后开写</span>
+      <button class="btn primary" onclick="toast('下一场景（演示静态）')">下一场景 →</button></div></div>`;
+}
+function saveProse(){const p=P();p.proseDirty=false;p.proseSaved=true;render();toast("正文草稿已入提案队列（待确认）")}
+function proseInput(){
+  const p=P();
+  if(!p.proseDirty){p.proseDirty=true;
+    const d=document.querySelector(".editor .savedot");if(d)d.classList.add("on");
+    const t=document.getElementById("prose-state");if(t)t.textContent="有未保存修改";
+  }
+}
+
+/* ---------- 伏笔地图视图 ---------- */
+function rForeshadow(p){
+  return `<div class="colM">
+    <div class="layerhead"><span class="no blue">VIEW</span><h2>伏笔地图 · 检索审计 · 统计</h2><span class="sub2" style="cursor:pointer;color:var(--info)" onclick="S.view='layer';render()">← 返回层工作台</span></div>
+    <div class="card"><div class="fsline"><div class="rail"></div>
+      <div class="fnode" style="left:14%">3</div><div class="flab" style="left:14%">埋 · 拍3</div>
+      <div class="fnode" style="left:22%">9</div><div class="flab" style="left:22%">兑现</div>
+      <div class="fnode" style="left:80%">17</div><div class="flab" style="left:80%">埋 · 终局</div>
+      <div class="fnode g" style="left:92%">18</div><div class="flab" style="left:92%">回收 · 哑铃铛</div></div>
+      <div class="fcard"><div class="fh">⚠ 穿越者盲区 <span class="fst open">未回收</span><span style="margin-left:auto;font-weight:400;font-size:11px;color:var(--muted)">origin: ai · 可否决（sim #14）</span></div>
+        <div class="fd">埋设：拍 3「沉默房间」→ 中期兑现（登顶线）· 兑现窗口：拍 9–14 · 载体：濒死免疫判定</div></div>
+      <div class="fcard"><div class="fh">🔔 哑铃铛 <span class="fst paid">已回收 · 拍 18</span></div>
+        <div class="fd">埋设：拍 4 首次结算 → 回收：拍 18「保留那枚哑铃铛」· 物品伏笔 · 闭环完整</div></div>
+      <div class="fcard"><div class="fh">⚠ 最终规则漏洞 <span class="fst open">未回收</span></div>
+        <div class="fd">埋设：L2 摘要（层 2 随口一提、L5 才兑现，sim #6）→ PAYOFF_VIA 排名套利 · 兑现：拍 16–18</div></div></div>
+    <div class="sect" style="margin:0">检索审计 · 最近 2 次（sim #27：记录每次组装了什么，作者标"AI 忘了 X"）</div>
+    <div class="audit"><div class="ah"><span>search · "陈叠 消失"</span><span>hybrid · rewrite 失败回落（无 key 规格内）</span></div>
+      <div class="ab">FTS 命中：拍 11/12 · 图谱：陈叠(death_beat=12) · 上下文组装 412 token <button class="btn sm ghost" style="float:right" onclick="toast('已记录：AI 忘了 X（演示）')">AI 忘了 X</button></div></div>
+    <div class="audit"><div class="ah"><span>compose_context · 场景 1.1</span><span>800 token</span></div>
+      <div class="ab">精确拉取 5 组 · 向量召回 0（库空）· TODO 项排除 2 <button class="btn sm ghost" style="float:right" onclick="toast('已记录（演示）')">AI 忘了 X</button></div></div>
+    <div class="nextbar"><div><div class="nx1">VIEW</div><div class="nx2">关系图谱 / 节奏统计（同类视图，演示从略）</div></div><div class="grow"></div>
+      <button class="btn" onclick="S.view='layer';render()">返回层工作台</button></div></div>`;
+}
+
+/* ---------- 右栏 ---------- */
+function rColR(p){
+  let items=[];
+  if(p.empty){
+    if(p.inspSaved&&!p.premA) items.push(["前提 · 生成中…","derive_from 灵感原话","warn"]);
+    if(p.premA) items.push(["前提 · 提案 A","等待你在中栏裁决 →","warn"]);
+  } else {
+    if(!p.premise) items.push(["前提 · A+B 合并稿","待确认","warn"]);
+    if(p.layer===2&&p.sub==="beats") items.push([`节拍表 · 三幕 18 拍`,p.beats.every(Boolean)?"已确认":"部分确认中 "+p.beats.filter(Boolean).length+"/18",p.beats.every(Boolean)?"ok":"warn"]);
+    if(p.layer===4) items.push(["场景卡 · 拍 1–4 拆分",(p.scenes.filter(Boolean).length)+" 确认 / 3 张","warn"]);
+    if(p.layer===5&&p.proseDirty) items.push(["正文 · 1.1 草稿","未保存（编辑器内）","warn"]);
+    if(p.layer===5&&p.proseSaved) items.push(["正文 · 1.1 草稿","已入队待确认","warn"]);
+    if(p.layer===5) items.push(["抽取 · 67 年婚姻","待确认 · 高敏感","warn"]);
+  }
+  if(!items.length) items.push(["暂无待确认提案","生成或写作后出现在这里","muted"]);
+  const chat=p.empty?"灵感已存档。想先聊聊设定，还是直接生成前提？":
+    (p.layer===2&&p.sub==="beats"?"拍 4 的「哑铃铛」我在拍 18 安排了回收——如果你改掉拍 4 的奖励，记得让我同步结局。":
+    (p.layer===5?"「湿的、咸的、不属于这里的」这句和场景卡的「错位感」意图咬得很准。要我按这个调子续写吗？":"缺口②其实影响拍 11-12（朋友消失）的写法——要我把「寿命输送」也具体化成机制吗？"));
+  return `<div class="colR">
+    <div class="sect" style="margin-top:0">提案队列 · ${items.length}</div>
+    <div class="plist">${items.map(([t,d,c])=>`<div class="pi"><div class="pt"><span>${t}</span><span style="color:var(--${c==="ok"?"ok":c==="muted"?"muted":"warn"})">${d}</span></div></div>`).join("")}</div>
+    <div class="sect">生成提案 <span class="tag q">自然语言化（修 W-8）</span></div>
+    <div class="card">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${["前提","梗概","摘要","节拍表","角色","场景","正文"].map((t,i)=>`<span class="tt ${i===0?"on":""}" style="border:1px solid var(--border);border-radius:14px;padding:3px 11px;font-size:12px;color:${i===0?"var(--accent)":"var(--muted)"};cursor:pointer;background:${i===0?"var(--accent-dim)":"transparent"}">${t}</span>`).join("")}</div>
+      <div class="field" style="margin-bottom:8px"><label>附加要求（可选，说人话即可）</label><input placeholder="例：基调更黑暗一些，结局留一线希望"></div>
+      <details style="font-size:12px;color:var(--muted)"><summary style="cursor:pointer">高级（定位 JSON / 原始参数）</summary>
+        <div class="field" style="margin-top:8px"><label>locate（JSON）</label><input value='{"chapter":"ch1"}'></div></details>
+      <div class="row" style="margin-top:10px"><button class="btn primary" onclick="toast('POST /api/generate（演示）——W-4 修复后：无 key 时这里会提示先配置')">生成提案</button></div></div>
+    <div class="sect">聊天 · 助手</div>
+    <div class="chatbox"><div class="chatmsg ai">${chat}</div>
+      <div class="chatinput"><input placeholder="说出你的想法…（Enter 发送）"><button class="btn sm" onclick="toast('聊天：SSE /api/chat/stream（演示静态）')">发送</button></div></div>
+  </div>`;
+}
+
+/* ---------- 设置弹窗 ---------- */
+function rSettings(){
+  return `<div class="modal ${S.settings?"on":""}" onclick="if(event.target===this)S.settings=false,render()">
+    <div class="mcard"><h3>设置 · 创作引擎 <span class="tag q">配置随书存（Q2）</span></h3>
+      <div class="hint">当前书「${esc(P().name)}」的模型配置。修改后立即生效。</div>
+      <div class="field"><label>接入方式</label><select><option>DeepSeek</option><option>OpenAI 兼容</option><option>Anthropic</option></select></div>
+      <div class="field" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div><label>API Key</label><input type="password" value="sk-••••••••••••"></div><div><label>模型</label><select><option>deepseek-chat</option></select></div></div>
+      <div class="field"><label>Base URL（可选）</label><input placeholder="https://api.deepseek.com/v1"></div>
+      ${S.tested2?`<div class="testok">✓ 连接成功 · deepseek-chat</div>`:""}
+      <div class="row"><button class="btn ghost" onclick="S.settings=false;render()">取消</button>
+        <button class="btn ghost" onclick="S.tested2=true;render()">测试连接</button>
+        <button class="btn primary" onclick="S.settings=false;toast('已保存（演示）· PUT /api/llm/config');render()">保存</button></div></div></div>`;
+}
+
+render();
+</script>
+</body>
+</html>
