@@ -80,7 +80,7 @@ flowchart LR
 
 | # | 事项 | 说明 |
 |---|---|---|
-| 1 | Windows python.org CPython 扩展加载崩 | jieba/sqlite-vec 族验证与规避（锁 wheel 版本或纯 Python 回退）——需 Windows 真机/python.org 构建 |
+| 1 | Windows python.org CPython 扩展加载崩 | ~~验证与规避~~ **已验证证伪并关闭**（2026-08-29，本机 nuget 官方 python 3.12.8 全链路通过：`enable_load_extension` 存在、sqlite-vec/jieba/`SnowelAPI` 全绿、wheel 无版本悬崖——明细见 `details/l16-windows-verification.md`，零代码改动） |
 | 2 | **mcp 依赖下限提版**（RW-①） | `shell/pyproject.toml` `mcp>=1.2,<2` → `>=1.29`（新 SDK 面在 1.2 不存在，装旧版连 stdio 一起崩） |
 | 3 | GitHub Release 打包流程 | tag → CI/脚本产出 zip（源码 + `web/dist` 构建产物 + 一键启动脚本 + README 安装节）；两包结构维持（`pip install -e . -e ./shell`） |
 | 4 | 发布顺序 | 走查修复波全清 → tag v1.0.0 → Release → dev → main PR（**建 PR 须用户发话**）→ main 打 tag |
@@ -89,7 +89,7 @@ flowchart LR
 
 | 挂账 | 状态 |
 |---|---|
-| L16（上表 1/2） | 开放，Step 8 |
+| L16 | 第 1 项（扩展加载崩）已验证证伪关闭（2026-08-29，`details/l16-windows-verification.md`）；剩余 RW-① + Release 打包，Step 8 |
 | L26 chat 召回 20 有意上限 | 记录性，勿当 bug |
 | L27 pydantic_settings 'lifespan' 警告 | 卫生项，专门时机（第三方库内部路径） |
 | EX-③ 警告池归因漂移 | 挂账条件"任何壳扩展包面落地之日"——当前 Web/MCP 无扩展面 |
